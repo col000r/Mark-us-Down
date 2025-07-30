@@ -14,11 +14,17 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        platform: [macos-latest, ubuntu-20.04, windows-latest]
+        platform: [ubuntu-22.04]  # Temporarily only Linux for testing
 
     runs-on: ${{ matrix.platform }}
     
     steps:
+    - name: Debug platform info
+      run: |
+        echo "Running on: ${{ matrix.platform }}"
+        echo "Runner OS: ${{ runner.os }}"
+        uname -a || echo "uname not available"
+        
     - uses: actions/checkout@v4
 
     - name: Setup node
@@ -30,10 +36,10 @@ jobs:
       uses: dtolnay/rust-toolchain@stable
 
     - name: Install dependencies (ubuntu only)
-      if: matrix.platform == 'ubuntu-20.04'
+      if: matrix.platform == 'ubuntu-22.04'
       run: |
         sudo apt-get update
-        sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.0-dev libayatana-appindicator3-dev librsvg2-dev
+        sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.0-dev libayatana-appindicator3-dev librsvg2-dev libssl-dev
 
     - name: Install frontend dependencies
       run: npm install
