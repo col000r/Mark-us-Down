@@ -1,0 +1,37 @@
+.source-editor {
+  height: 100%;
+  background-color: var(--bg-secondary);
+  position: relative;
+  transition: background-color 0.3s ease;
+}
+
+/* Light theme editor styling */
+:root .source-editor .monaco-editor {
+  background-color: var(--bg-secondary) !important;
+}
+
+:root .source-editor .monaco-editor .margin {
+  background-color: var(--bg-secondary) !important;
+}
+
+:root .source-editor .monaco-editor .monaco-editor-background {
+  background-color: var(--bg-secondary) !important;
+}
+
+/* Dark theme editor styling */
+:root[data-theme="dark"] .source-editor .monaco-editor {
+  background-color: #1e1e1e !important;
+}
+
+:root[data-theme="dark"] .source-editor .monaco-editor .margin {
+  background-color: #1e1e1e !important;
+}
+
+:root[data-theme="dark"] .source-editor .monaco-editor .monaco-editor-background {
+  background-color: #1e1e1e !important;
+}
+
+/* Ensure the editor takes full height */
+.source-editor > div {
+  height: 100% !important;
+}

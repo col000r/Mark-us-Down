@@ -1,0 +1,54 @@
+.split-view {
+  display: flex;
+  height: 100%;
+  width: 100%;
+}
+
+.split-view.dragging {
+  user-select: none;
+}
+
+.split-pane {
+  height: 100%;
+  overflow: hidden;
+  position: relative;
+  flex-shrink: 0;
+}
+
+.split-pane-left {
+  border-right: 1px solid var(--border-primary);
+}
+
+.split-pane-right {
+  border-left: 1px solid var(--border-primary);
+}
+
+.split-divider {
+  width: 4px;
+  background-color: var(--border-primary);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  user-select: none;
+  cursor: col-resize;
+  transition: background-color 0.2s ease;
+}
+
+.split-divider:hover {
+  background-color: var(--link-color);
+}
+
+.split-handle {
+  width: 1px;
+  height: 60px;
+  background-color: var(--border-secondary);
+  border-radius: 2px;
+  transition: all 0.2s ease;
+}
+
+.split-divider:hover .split-handle {
+  background-color: var(--header-text);
+  height: 80px;
+}

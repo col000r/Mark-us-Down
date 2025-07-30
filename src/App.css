@@ -1,0 +1,311 @@
+.App {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  transition: all 0.2s ease;
+}
+
+.App.drag-over::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(96, 165, 250, 0.1);
+  border: 2px dashed var(--link-color);
+  border-radius: 8px;
+  z-index: 1000;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.App.drag-over::before {
+  content: 'Drop markdown file here to open';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: var(--bg-secondary);
+  color: var(--link-color);
+  padding: 16px 24px;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 1.1rem;
+  z-index: 1001;
+  pointer-events: none;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  border: 2px solid var(--link-color);
+}
+
+.App-header {
+  background-color: var(--header-bg);
+  padding: 12px 20px;
+  color: var(--header-text);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid var(--border-primary);
+  transition: all 0.3s ease;
+  backdrop-filter: blur(8px);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  min-height: 48px;
+}
+
+.file-status {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.file-name {
+  font-weight: 600;
+  font-size: 1rem;
+  color: var(--header-text);
+}
+
+.file-path {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  opacity: 0.8;
+  margin-top: 2px;
+}
+
+.controls {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.controls button {
+  padding: 7px 14px;
+  background: var(--bg-tertiary);
+  color: var(--header-text);
+  border: 1px solid var(--border-primary);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-weight: 500;
+  transition: all 0.2s ease;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  backdrop-filter: blur(4px);
+}
+
+.controls button:hover {
+  background-color: var(--bg-code);
+  border-color: var(--border-secondary);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.08);
+}
+
+.controls button:active {
+  transform: none;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.theme-toggle {
+  background: var(--bg-tertiary) !important;
+  border: 1px solid var(--border-primary) !important;
+  color: var(--header-text) !important;
+  padding: 7px 10px !important;
+  margin-left: 8px;
+  font-size: 1rem;
+  border-radius: 6px !important;
+  backdrop-filter: blur(4px);
+  transition: all 0.2s ease !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1) !important;
+}
+
+.theme-toggle:hover {
+  background-color: var(--bg-code) !important;
+  border-color: var(--border-secondary) !important;
+  transform: none !important;
+}
+
+.editor-container {
+  flex: 1;
+  display: flex;
+  padding: 0;
+  overflow: hidden;
+}
+
+/* Modal styles */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  backdrop-filter: blur(4px);
+}
+
+.modal-content {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-primary);
+  border-radius: 12px;
+  padding: 24px;
+  max-width: 500px;
+  width: 90%;
+  max-height: 80vh;
+  overflow-y: auto;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+  color: var(--text-primary);
+}
+
+.modal-content h2 {
+  margin-top: 0;
+  margin-bottom: 16px;
+  color: var(--text-primary);
+  font-size: 1.5rem;
+}
+
+.modal-content p {
+  margin-bottom: 12px;
+  line-height: 1.5;
+  color: var(--text-primary);
+}
+
+.modal-content ul {
+  margin: 12px 0;
+  padding-left: 20px;
+}
+
+.modal-content li {
+  margin-bottom: 8px;
+  color: var(--text-primary);
+}
+
+.modal-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 24px;
+}
+
+.modal-buttons button {
+  padding: 8px 16px;
+  background: var(--button-bg);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.modal-buttons button:hover {
+  background: var(--button-hover);
+}
+
+/* About Dialog Specific Styles */
+.about-dialog {
+  text-align: center;
+}
+
+.about-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.about-logo {
+  width: 80px;
+  height: 80px;
+  margin-bottom: 12px;
+}
+
+.about-dialog h2 {
+  font-size: 2rem;
+  margin: 0 0 8px 0;
+}
+
+.about-dialog .version {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  margin-bottom: 16px;
+}
+
+.about-dialog .tagline {
+  font-size: 1rem;
+  margin-bottom: 20px;
+}
+
+.about-links {
+  margin: 20px 0;
+}
+
+.about-links a {
+  color: var(--link-color);
+  text-decoration: none;
+  transition: opacity 0.2s ease;
+}
+
+.about-links a:hover {
+  opacity: 0.8;
+  text-decoration: underline;
+}
+
+.about-dialog .copyright {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  margin-top: 20px;
+  margin-bottom: 24px;
+}
+
+/* Debug Info Box Styles */
+.debug-info-box {
+  position: fixed;
+  top: 10px;
+  right: 10px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: 8px;
+  padding: 12px;
+  max-width: 500px;
+  z-index: 1000;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+}
+
+.debug-info-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+.debug-info-close {
+  background: transparent;
+  border: none;
+  font-size: 18px;
+  padding: 0 4px;
+  cursor: pointer;
+  color: var(--text-secondary);
+  transition: color 0.2s ease;
+}
+
+.debug-info-close:hover {
+  color: var(--text-primary);
+}
+
+.debug-info-content {
+  margin: 0;
+  font-family: 'Menlo', 'Monaco', 'Consolas', 'Courier New', monospace;
+  font-size: 12px;
+  white-space: pre-wrap;
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+  padding: 8px;
+  border-radius: 4px;
+  border: 1px solid var(--border-secondary);
+}
