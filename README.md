@@ -1,6 +1,8 @@
 # Mark-us-Down
 
-A fast, native markdown editor with live preview. Built with Tauri and React.
+A fast, native **Markdown Editor** with live preview. Built with Tauri and React.
+
+➡️ [Mark-us-Down Website](https://mark-us-down.brightlight.rocks)
 
 ![Mark-us-Down Logo](ME_Logo192.png)
 
@@ -54,8 +56,7 @@ npm run build  # Build for production
 
 ## License
 
-[MIT](LICENSE)
+Copyright (C) 2025 [Bright Light Interstellar Ltd.](https://brightlight.rocks)  
+Blog: https://markus.hofer.rocks
 
----
-
-Made with Tauri + React
+[MIT License](LICENSE)
