@@ -1,4 +1,4 @@
-use tauri::{Manager, menu::*, Emitter, WindowEvent, RunEvent};
+use tauri::{Manager, menu::*, Emitter, WindowEvent};
 use std::fs;
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -326,119 +326,9 @@ pub fn run() {
     })
     .build(tauri::generate_context!())
     .expect("error while building tauri application")
-    .run(|app_handle, event| {
-      match event {
-        RunEvent::Opened { urls } => {
-          println!("🔥 RunEvent::Opened received with {} URLs", urls.len());
-          
-          // Log to file for debugging
-          let mut debug_info = format!("RunEvent::Opened received with {} URLs:\n", urls.len());
-          for (i, url) in urls.iter().enumerate() {
-            let url_line = format!("  URL {}: {}\n", i, url);
-            debug_info.push_str(&url_line);
-            println!("  URL {}: {}", i, url);
-          }
-          
-          // Write to debug file
-          if let Some(home_dir) = std::env::var_os("HOME") {
-            let debug_path = std::path::Path::new(&home_dir).join("mark_us_down_debug.log");
-            let _ = fs::write(&debug_path, &debug_info);
-          }
-          
-          // Process the first markdown file
-          for url in urls {
-            let url_str = url.to_string();
-            debug_info.push_str(&format!("Processing URL: {}\n", url_str));
-            
-            // Convert file:// URL to file path
-            let file_path = if url_str.starts_with("file://") {
-              url_str.strip_prefix("file://").unwrap_or(&url_str)
-            } else {
-              &url_str
-            };
-            
-            println!("🔍 Processing file path: {}", file_path);
-            debug_info.push_str(&format!("Converted to file path: {}\n", file_path));
-            
-            let path = std::path::Path::new(file_path);
-            let exists = path.exists();
-            let is_markdown = file_path.ends_with(".md") || file_path.ends_with(".markdown") || file_path.ends_with(".txt");
-            
-            println!("   File exists: {}", exists);
-            println!("   Is markdown: {}", is_markdown);
-            debug_info.push_str(&format!("File exists: {}\n", exists));
-            debug_info.push_str(&format!("Is markdown: {}\n", is_markdown));
-            
-            if exists && is_markdown {
-              println!("✅ Found valid markdown file: {}", file_path);
-              debug_info.push_str(&format!("✅ Valid markdown file found\n"));
-              
-              match fs::read_to_string(path) {
-                Ok(content) => {
-                  println!("📖 Successfully read file content ({} chars)", content.len());
-                  debug_info.push_str(&format!("Successfully read {} characters\n", content.len()));
-                  
-                  // Check if window exists
-                  let windows = app_handle.webview_windows();
-                  println!("Available windows: {:?}", windows.keys().collect::<Vec<_>>());
-                  debug_info.push_str(&format!("Available windows: {:?}\n", windows.keys().collect::<Vec<_>>()));
-                  
-                  // Try multiple ways to get the window
-                  let window = app_handle.get_webview_window("main")
-                    .or_else(|| windows.values().next().cloned());
-                  
-                  if let Some(window) = window {
-                    println!("📤 Found window, emitting file-opened event...");
-                    debug_info.push_str("Found window, emitting event...\n");
-                    
-                    // Add a small delay to ensure the frontend is ready
-                    std::thread::sleep(std::time::Duration::from_millis(500));
-                    
-                    match window.emit("file-opened", (file_path.to_string(), content)) {
-                      Ok(_) => {
-                        println!("✅ Successfully emitted file-opened event for: {}", file_path);
-                        debug_info.push_str(&format!("✅ Successfully emitted event for: {}\n", file_path));
-                      },
-                      Err(e) => {
-                        eprintln!("❌ Failed to emit file-opened event: {}", e);
-                        debug_info.push_str(&format!("❌ Failed to emit event: {}\n", e));
-                      }
-                    }
-                  } else {
-                    // No window available yet - store the file to open later
-                    println!("📦 No window available, storing file for later: {}", file_path);
-                    debug_info.push_str(&format!("📦 Storing file for later: {}\n", file_path));
-                    
-                    if let Ok(mut pending) = PENDING_FILE.lock() {
-                      *pending = Some((file_path.to_string(), content));
-                      println!("✅ File stored successfully");
-                      debug_info.push_str("✅ File stored successfully\n");
-                    } else {
-                      eprintln!("❌ Failed to store pending file");
-                      debug_info.push_str("❌ Failed to store pending file\n");
-                    }
-                  }
-                }
-                Err(e) => {
-                  eprintln!("❌ Error reading file '{}': {}", file_path, e);
-                  debug_info.push_str(&format!("❌ Error reading file: {}\n", e));
-                }
-              }
-              break; // Only process the first valid file
-            } else {
-              println!("⏭️ Skipping file: {} (exists: {}, is_markdown: {})", file_path, exists, is_markdown);
-              debug_info.push_str(&format!("⏭️ Skipping file (exists: {}, is_markdown: {})\n", exists, is_markdown));
-            }
-          }
-          
-          // Update debug file with all the processing info
-          if let Some(home_dir) = std::env::var_os("HOME") {
-            let debug_path = std::path::Path::new(&home_dir).join("mark_us_down_debug.log");
-            let _ = fs::write(&debug_path, &debug_info);
-          }
-        }
-        _ => {}
-      }
+    .run(|_app_handle, _event| {
+      // File opening via double-click is handled by the single-instance plugin
+      // and the file association configuration in tauri.conf.json
     });
 }
 
