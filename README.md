@@ -43,7 +43,7 @@ npm run tauri build
 
 ```bash
 npm run dev    # Run in development mode
-npm run tauri build  # Build for production
+npm run build  # Build for production
 ```
 
 ## Tech Stack
@@ -54,7 +54,7 @@ npm run tauri build  # Build for production
 
 ## License
 
-MIT
+[MIT](LICENSE)
 
 ---
 
