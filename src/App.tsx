@@ -23,13 +23,25 @@ function App() {
   
   // Use a ref to track the current theme state to avoid stale closures
   const isDarkThemeRef = useRef(isDarkTheme)
+  // Use a ref to track the hasUnsavedChanges state to avoid stale closures
+  const hasUnsavedChangesRef = useRef(hasUnsavedChanges)
+  // Use a ref to track the current file to avoid stale closures
+  const currentFileRef = useRef(currentFile)
   // Use a ref to track the Monaco editor instance for clipboard operations
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null)
   
-  // Update the ref whenever the state changes
+  // Update the refs whenever the state changes
   useEffect(() => {
     isDarkThemeRef.current = isDarkTheme
   }, [isDarkTheme])
+  
+  useEffect(() => {
+    hasUnsavedChangesRef.current = hasUnsavedChanges
+  }, [hasUnsavedChanges])
+  
+  useEffect(() => {
+    currentFileRef.current = currentFile
+  }, [currentFile])
 
   useEffect(() => {
     console.log('Markdown Editor initialized');
@@ -105,11 +117,15 @@ function App() {
           if (Array.isArray(event.payload) && event.payload.length === 2) {
             const [filePath, newContent] = event.payload;
             
+            // Use refs to avoid stale closure issues
+            const currentHasUnsavedChanges = hasUnsavedChangesRef.current;
+            const currentFileFromRef = currentFileRef.current;
+            
             // Only auto-reload if user hasn't made changes
-            if (!hasUnsavedChanges && filePath === currentFile) {
+            if (!currentHasUnsavedChanges && filePath === currentFileFromRef) {
               console.log('Auto-reloading file content');
               setContent(newContent);
-            } else if (hasUnsavedChanges) {
+            } else if (currentHasUnsavedChanges) {
               console.log('File changed externally but user has unsaved changes - not auto-reloading');
               // Could show a notification here
             }
