@@ -42,9 +42,9 @@
     "macOS": {
       "frameworks": [],
       "exceptionDomain": "",
-      "signingIdentity": null,
-      "providerShortName": "",
-      "entitlements": null,
+      "signingIdentity": "-",
+      "providerShortName": null,
+      "entitlements": "src-tauri/entitlements.plist",
       "dmg": {
         "appPosition": {
           "x": 180,

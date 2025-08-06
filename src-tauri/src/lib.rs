@@ -1,10 +1,15 @@
 use tauri::{Manager, menu::*, Emitter, WindowEvent};
 use std::fs;
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
+use notify::{Config, Event, RecommendedWatcher, RecursiveMode, Watcher};
+use std::collections::HashMap;
 
 // Store pending file to open when window becomes available
 static PENDING_FILE: Mutex<Option<(String, String)>> = Mutex::new(None);
+
+// File watcher state
+type FileWatchers = Arc<Mutex<HashMap<String, RecommendedWatcher>>>;
 
 // Tauri commands for file operations
 #[tauri::command]
@@ -139,6 +144,76 @@ async fn debug_args() -> Result<Vec<String>, String> {
 }
 
 #[tauri::command]
+async fn start_file_watcher(app_handle: tauri::AppHandle, file_path: String) -> Result<(), String> {
+  let watchers: FileWatchers = app_handle.state::<FileWatchers>().inner().clone();
+  
+  let path = PathBuf::from(&file_path);
+  if !path.exists() {
+    return Err("File does not exist".to_string());
+  }
+  
+  let (tx, rx) = std::sync::mpsc::channel();
+  let mut watcher = RecommendedWatcher::new(tx, Config::default())
+    .map_err(|e| format!("Failed to create watcher: {}", e))?;
+  
+  watcher.watch(&path, RecursiveMode::NonRecursive)
+    .map_err(|e| format!("Failed to watch file: {}", e))?;
+  
+  // Store the watcher
+  {
+    let mut watchers_lock = watchers.lock().unwrap();
+    watchers_lock.insert(file_path.clone(), watcher);
+  }
+  
+  // Start the event loop in a separate thread
+  let file_path_clone = file_path.clone();
+  let app_handle_clone = app_handle.clone();
+  let watchers_clone = watchers.clone();
+  
+  std::thread::spawn(move || {
+    for res in rx {
+      match res {
+        Ok(event) => {
+          if let Event { kind: notify::EventKind::Modify(_), paths, .. } = event {
+            if paths.iter().any(|p| p.to_string_lossy() == file_path_clone) {
+              // File was modified, read new content and emit event
+              if let Ok(content) = fs::read_to_string(&file_path_clone) {
+                if let Some(window) = app_handle_clone.get_webview_window("main") {
+                  let _ = window.emit("file-changed-externally", (&file_path_clone, &content));
+                }
+              }
+            }
+          }
+        }
+        Err(e) => {
+          eprintln!("File watcher error: {}", e);
+          // Remove watcher on error
+          let mut watchers_lock = watchers_clone.lock().unwrap();
+          watchers_lock.remove(&file_path_clone);
+          break;
+        }
+      }
+    }
+  });
+  
+  println!("Started watching file: {}", file_path);
+  Ok(())
+}
+
+#[tauri::command]
+async fn stop_file_watcher(app_handle: tauri::AppHandle, file_path: String) -> Result<(), String> {
+  let watchers: FileWatchers = app_handle.state::<FileWatchers>().inner().clone();
+  let mut watchers_lock = watchers.lock().unwrap();
+  
+  if watchers_lock.remove(&file_path).is_some() {
+    println!("Stopped watching file: {}", file_path);
+    Ok(())
+  } else {
+    Err("File watcher not found".to_string())
+  }
+}
+
+#[tauri::command]
 async fn open_file_dialog(app_handle: tauri::AppHandle) -> Result<(), String> {
   use tauri_plugin_dialog::{DialogExt};
   
@@ -177,6 +252,7 @@ pub fn run() {
   }
   
   tauri::Builder::default()
+    .manage(FileWatchers::default())
     .plugin(tauri_plugin_dialog::init())
     .plugin(tauri_plugin_fs::init())
     .plugin(tauri_plugin_shell::init())
@@ -283,7 +359,9 @@ pub fn run() {
       read_file,
       open_file_dialog,
       update_theme_menu,
-      debug_args
+      debug_args,
+      start_file_watcher,
+      stop_file_watcher
     ])
     .on_menu_event(handle_menu_event)
     .on_window_event(|window, event| match event {

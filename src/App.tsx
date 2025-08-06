@@ -91,8 +91,28 @@ function App() {
             setHasUnsavedChanges(false);
             setIsDragOver(false); // Clear drag state when file loads successfully
             console.log('File loaded from event:', filePath);
+            
+            // Start watching the file for changes
+            startFileWatcher(filePath);
           } else {
             console.log('Event payload format unexpected:', event.payload);
+          }
+        });
+        
+        // Set up file change listener for automatic reloading
+        const fileChangedListener = await listen<[string, string]>('file-changed-externally', (event) => {
+          console.log('File changed externally:', event);
+          if (Array.isArray(event.payload) && event.payload.length === 2) {
+            const [filePath, newContent] = event.payload;
+            
+            // Only auto-reload if user hasn't made changes
+            if (!hasUnsavedChanges && filePath === currentFile) {
+              console.log('Auto-reloading file content');
+              setContent(newContent);
+            } else if (hasUnsavedChanges) {
+              console.log('File changed externally but user has unsaved changes - not auto-reloading');
+              // Could show a notification here
+            }
           }
         });
         
@@ -193,6 +213,7 @@ function App() {
         unlisten = () => {
           unlistenFns.forEach(fn => fn());
           fileOpenedListener();
+          fileChangedListener();
         };
 
         console.log('All Tauri event listeners set up successfully');
@@ -241,7 +262,12 @@ function App() {
     }
   }, [isDarkTheme, isTauri])
 
-  const handleNewFile = () => {
+  const handleNewFile = async () => {
+    // Stop watching the current file if any
+    if (currentFile) {
+      await stopFileWatcher(currentFile)
+    }
+    
     setContent('')
     setCurrentFile(null)
     setHasUnsavedChanges(false)
@@ -250,6 +276,12 @@ function App() {
 
   const openFile = async () => {
     console.log('openFile called, isTauri:', isTauri);
+    
+    // Stop watching the current file if any
+    if (currentFile) {
+      await stopFileWatcher(currentFile)
+    }
+    
     if (!isTauri) {
       // Web mode - create file input element
       const input = document.createElement('input');
@@ -300,6 +332,9 @@ function App() {
             setCurrentFile(path);
             setHasUnsavedChanges(false);
             console.log('File opened successfully via fallback:', path);
+            
+            // Start watching the file for changes
+            await startFileWatcher(path);
           }
         } catch (fallbackError) {
           console.error("Fallback method also failed:", fallbackError);
@@ -478,6 +513,28 @@ function App() {
     }
   }
 
+  const startFileWatcher = async (filePath: string) => {
+    if (isWeb) return
+    try {
+      const { invoke } = await import('@tauri-apps/api/core')
+      await invoke('start_file_watcher', { filePath })
+      console.log('Started file watcher for:', filePath)
+    } catch (error) {
+      console.error('Error starting file watcher:', error)
+    }
+  }
+
+  const stopFileWatcher = async (filePath: string) => {
+    if (isWeb) return
+    try {
+      const { invoke } = await import('@tauri-apps/api/core')
+      await invoke('stop_file_watcher', { filePath })
+      console.log('Stopped file watcher for:', filePath)
+    } catch (error) {
+      console.error('Error stopping file watcher:', error)
+    }
+  }
+
   // Extract document title from markdown content
   const extractDocumentTitle = (markdownContent: string): string | null => {
     if (!markdownContent.trim()) return null
@@ -644,8 +701,12 @@ function App() {
   useEffect(() => {
     return () => {
       scrollSyncService.dispose()
+      // Stop file watcher if any
+      if (currentFile) {
+        stopFileWatcher(currentFile)
+      }
     }
-  }, [])
+  }, [currentFile])
 
 
   return (
