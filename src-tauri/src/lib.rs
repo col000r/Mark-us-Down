@@ -422,23 +422,23 @@ pub fn run() {
     .on_menu_event(handle_menu_event)
     .on_window_event(|window, event| match event {
       WindowEvent::CloseRequested { .. } => {
-        // Handle window close with proper cleanup
-        println!("Window close requested");
+        // Handle window close with immediate app termination
+        println!("Window close requested - terminating app");
         
-        // Stop all file watchers before closing
         let app_handle = window.app_handle();
-        if let Ok(watchers) = app_handle.state::<FileWatchers>().inner().try_lock() {
-          println!("Cleaning up {} file watchers", watchers.len());
-          // The watchers will be cleaned up when they're dropped
-        }
         
-        window.close().unwrap();
-        
-        // On macOS, quit the entire app when the last window closes
+        // On macOS, just exit immediately - let the system handle cleanup
         #[cfg(target_os = "macos")]
         {
-          println!("Quitting app after window close on macOS");
+          println!("Exiting app immediately on macOS");
           app_handle.exit(0);
+          return; // Don't continue with window.close()
+        }
+        
+        // On other platforms, close the window normally
+        #[cfg(not(target_os = "macos"))]
+        {
+          window.close().unwrap();
         }
       }
       WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) => {
