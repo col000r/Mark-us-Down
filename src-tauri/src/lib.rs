@@ -244,11 +244,17 @@ async fn open_file_dialog(app_handle: tauri::AppHandle) -> Result<(), String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-  // Initial debug log
-  let debug_info = "Application started - waiting for RunEvent::Opened events for file associations.\n";
+  // Initial debug log with timestamp and args
+  let args: Vec<String> = std::env::args().collect();
+  let debug_info = format!(
+    "Application started at {}\nCommand line arguments ({}): {:?}\nWaiting for file associations and processing args...\n",
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs(),
+    args.len(),
+    args
+  );
   if let Some(home_dir) = std::env::var_os("HOME") {
     let debug_path = std::path::Path::new(&home_dir).join("mark_us_down_debug.log");
-    let _ = fs::write(&debug_path, debug_info);
+    let _ = fs::write(&debug_path, &debug_info);
   }
   
   tauri::Builder::default()
@@ -282,6 +288,56 @@ pub fn run() {
             .level(log::LevelFilter::Info)
             .build(),
         )?;
+      }
+
+      // Process command line arguments for first instance startup
+      let args: Vec<String> = std::env::args().collect();
+      println!("App setup - found {} arguments:", args.len());
+      for (i, arg) in args.iter().enumerate() {
+        println!("  Setup Arg {}: {}", i, arg);
+      }
+      
+      // Enhanced debug logging
+      if let Some(home_dir) = std::env::var_os("HOME") {
+        let debug_path = std::path::Path::new(&home_dir).join("mark_us_down_debug.log");
+        let mut debug_content = format!(
+          "Setup phase - found {} arguments:\n",
+          args.len()
+        );
+        for (i, arg) in args.iter().enumerate() {
+          debug_content.push_str(&format!("  Arg {}: {}\n", i, arg));
+        }
+        let _ = fs::write(&debug_path, debug_content);
+      }
+      
+      // Look for file arguments in the first instance
+      for arg in args.iter().skip(1) {
+        println!("Checking argument: {}", arg);
+        let path_exists = std::path::Path::new(arg).exists();
+        let is_markdown = arg.ends_with(".md") || arg.ends_with(".markdown") || arg.ends_with(".txt");
+        println!("  Path exists: {}, Is markdown: {}", path_exists, is_markdown);
+        
+        if path_exists && is_markdown {
+          println!("Found file to open from first instance: {}", arg);
+          
+          // Read the file and store it for later emission
+          match fs::read_to_string(arg) {
+            Ok(content) => {
+              println!("Successfully read file content ({} bytes), storing for pending emission", content.len());
+              // Store the file info to be emitted once the window is ready
+              if let Ok(mut pending) = PENDING_FILE.lock() {
+                *pending = Some((arg.clone(), content));
+                println!("Stored pending file: {}", arg);
+              }
+            }
+            Err(e) => {
+              println!("Error reading file {}: {}", arg, e);
+            }
+          }
+          break;
+        } else {
+          println!("Skipping argument: {} (exists: {}, markdown: {})", arg, path_exists, is_markdown);
+        }
       }
 
       // Create menu
@@ -367,7 +423,23 @@ pub fn run() {
     .on_window_event(|window, event| match event {
       WindowEvent::CloseRequested { .. } => {
         // Handle window close with proper cleanup
+        println!("Window close requested");
+        
+        // Stop all file watchers before closing
+        let app_handle = window.app_handle();
+        if let Ok(watchers) = app_handle.state::<FileWatchers>().inner().try_lock() {
+          println!("Cleaning up {} file watchers", watchers.len());
+          // The watchers will be cleaned up when they're dropped
+        }
+        
         window.close().unwrap();
+        
+        // On macOS, quit the entire app when the last window closes
+        #[cfg(target_os = "macos")]
+        {
+          println!("Quitting app after window close on macOS");
+          app_handle.exit(0);
+        }
       }
       WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) => {
         println!("Drag drop event received with {} files", paths.len());
@@ -404,9 +476,45 @@ pub fn run() {
     })
     .build(tauri::generate_context!())
     .expect("error while building tauri application")
-    .run(|_app_handle, _event| {
-      // File opening via double-click is handled by the single-instance plugin
-      // and the file association configuration in tauri.conf.json
+    .run(|app_handle, event| {
+      match event {
+        tauri::RunEvent::Opened { urls } => {
+          println!("RunEvent::Opened received with {} URLs: {:?}", urls.len(), urls);
+          
+          // Handle file opening from macOS "Open With" or double-click
+          for url in urls {
+            let path = url.to_file_path().unwrap_or_else(|_| std::path::PathBuf::from(url.as_str()));
+            let path_str = path.to_string_lossy().to_string();
+            
+            println!("Processing opened file: {}", path_str);
+            
+            if path.exists() && (path_str.ends_with(".md") || path_str.ends_with(".markdown") || path_str.ends_with(".txt")) {
+              match fs::read_to_string(&path) {
+                Ok(content) => {
+                  println!("Successfully read opened file: {}", path_str);
+                  
+                  // Check if window is available
+                  if let Some(window) = app_handle.get_webview_window("main") {
+                    println!("Window available, emitting file-opened event immediately");
+                    let _ = window.emit("file-opened", (&path_str, &content));
+                  } else {
+                    println!("Window not available, storing as pending file");
+                    // Store for later emission when window is ready
+                    if let Ok(mut pending) = PENDING_FILE.lock() {
+                      *pending = Some((path_str, content));
+                    }
+                  }
+                }
+                Err(e) => {
+                  eprintln!("Error reading opened file {}: {}", path_str, e);
+                }
+              }
+              break; // Only handle the first markdown file
+            }
+          }
+        }
+        _ => {}
+      }
     });
 }
 
