@@ -44,7 +44,7 @@
       "exceptionDomain": "",
       "signingIdentity": null,
       "providerShortName": null,
-      "entitlements": "src-tauri/entitlements.plist",
+      "entitlements": "entitlements.plist",
       "dmg": {
         "appPosition": {
           "x": 180,
