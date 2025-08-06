@@ -311,6 +311,8 @@ pub fn run() {
       }
       
       // Look for file arguments in the first instance
+      // On Windows and Linux, file associations work via command line arguments
+      // On macOS, they work via RunEvent::Opened, but we also check args as fallback
       for arg in args.iter().skip(1) {
         println!("Checking argument: {}", arg);
         let path_exists = std::path::Path::new(arg).exists();
@@ -478,6 +480,8 @@ pub fn run() {
     .expect("error while building tauri application")
     .run(|app_handle, event| {
       match event {
+        // macOS-specific file opening via "Open With" or double-click
+        #[cfg(target_os = "macos")]
         tauri::RunEvent::Opened { urls } => {
           println!("RunEvent::Opened received with {} URLs: {:?}", urls.len(), urls);
           

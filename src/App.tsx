@@ -788,7 +788,7 @@ function App() {
               <img src="/ME_Logo192.png" alt="Mark-us-Down Logo" className="about-logo" />
               <h2>Mark-us-Down</h2>
             </div>
-            <p className="version">Version 1.0.0</p>
+            <p className="version">Version 1.0.2</p>
             <p className="tagline">A modern, split-pane markdown editor with real-time preview</p>
             <div className="about-links">
               <a 
