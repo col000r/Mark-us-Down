@@ -1,6 +1,6 @@
 [package]
 name = "mark-us-down"
-version = "1.0.2"
+version = "1.0.3"
 description = "Mark-us-Down: A modern markdown editor with live preview"
 authors = ["Mark-us-Down Team"]
 license = ""

@@ -16,11 +16,13 @@ export const PreviewPane: React.FC<PreviewPaneProps> = ({
   onMount
 }) => {
   const containerRef = useRef<HTMLDivElement>(null)
+  const hasCalledMount = useRef(false)
+
   const htmlContent = useMemo(() => {
     if (!content.trim()) {
       return '<div class="preview-placeholder">Start typing to see preview...</div>'
     }
-    
+
     try {
       return markdownParser.parse(content)
     } catch (error) {
@@ -29,35 +31,30 @@ export const PreviewPane: React.FC<PreviewPaneProps> = ({
     }
   }, [content])
 
+  // Call onMount once when container is ready
   useEffect(() => {
-    const container = containerRef.current
-    if (!container) return
-
-    // Call onMount callback
-    if (onMount) {
-      onMount(container)
+    if (containerRef.current && onMount && !hasCalledMount.current) {
+      console.log('[PreviewPane] Calling onMount')
+      onMount(containerRef.current)
+      hasCalledMount.current = true
     }
+  }, [onMount])
 
-    // Set up scroll event listener
+  // Simple scroll handler
+  const handleScroll = () => {
+    console.log('[PreviewPane] handleScroll called')
     if (onScroll) {
-      const handleScroll = () => {
-        onScroll()
-      }
-      
-      container.addEventListener('scroll', handleScroll)
-      
-      return () => {
-        container.removeEventListener('scroll', handleScroll)
-      }
+      onScroll()
     }
-  }, [onMount, onScroll])
+  }
 
   return (
-    <div 
+    <div
       ref={containerRef}
       className={`preview-pane ${className}`}
+      onScroll={handleScroll}
     >
-      <div 
+      <div
         className="preview-content"
         dangerouslySetInnerHTML={{ __html: htmlContent }}
       />

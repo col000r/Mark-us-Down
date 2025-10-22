@@ -1,4 +1,4 @@
-import React, { useRef, useCallback } from 'react'
+import React, { useRef, useCallback, useEffect } from 'react'
 import Editor, { OnMount } from '@monaco-editor/react'
 import * as monaco from 'monaco-editor'
 import './SourceEditor.css'
@@ -23,6 +23,12 @@ export const SourceEditor: React.FC<SourceEditorProps> = ({
   onEditorMount
 }) => {
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null)
+  const onScrollRef = useRef(onScroll)
+
+  // Keep scroll ref updated
+  useEffect(() => {
+    onScrollRef.current = onScroll
+  }, [onScroll])
 
   const handleEditorDidMount: OnMount = useCallback((editor, monaco) => {
     editorRef.current = editor
@@ -98,18 +104,20 @@ export const SourceEditor: React.FC<SourceEditorProps> = ({
     })
 
 
-    // Add scroll event listener
-    if (onScroll) {
-      editor.onDidScrollChange(() => {
-        onScroll();
-      });
-    }
+    // Add scroll event listener - always set up, use ref for callback
+    console.log('[SourceEditor] Setting up scroll listener')
+    editor.onDidScrollChange(() => {
+      console.log('[SourceEditor] Scroll event fired')
+      if (onScrollRef.current) {
+        onScrollRef.current()
+      }
+    })
 
     // Call the onEditorMount callback if provided
     if (onEditorMount) {
-      onEditorMount(editor);
+      onEditorMount(editor)
     }
-  }, [theme, onScroll, onEditorMount])
+  }, [theme, onEditorMount])
 
   // Theme is now handled by the Editor component directly
 

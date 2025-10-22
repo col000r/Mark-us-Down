@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef, useCallback } from 'react'
 import * as monaco from 'monaco-editor'
 import './App.css'
 import './styles/highlight.css'
@@ -603,14 +603,14 @@ function App() {
   }, [currentFile, hasUnsavedChanges, documentTitle])
 
   // Scroll synchronization handlers
-  const handleEditorMount = (editor: monaco.editor.IStandaloneCodeEditor) => {
+  const handleEditorMount = useCallback((editor: monaco.editor.IStandaloneCodeEditor) => {
     scrollSyncService.setEditor(editor)
     editorRef.current = editor // Store reference for clipboard operations
-  }
+  }, [])
 
-  const handlePreviewMount = (element: HTMLDivElement) => {
+  const handlePreviewMount = useCallback((element: HTMLDivElement) => {
     scrollSyncService.setPreviewElement(element)
-  }
+  }, [])
 
   const handleEditorScroll = () => {
     scrollSyncService.syncEditorToPreview()
@@ -717,7 +717,13 @@ function App() {
   useEffect(() => {
     return () => {
       scrollSyncService.dispose()
-      // Stop file watcher if any
+    }
+  }, [])
+
+  // Separate effect for file watcher cleanup
+  useEffect(() => {
+    return () => {
+      // Stop file watcher when currentFile changes
       if (currentFile) {
         stopFileWatcher(currentFile)
       }
@@ -788,7 +794,7 @@ function App() {
               <img src="/ME_Logo192.png" alt="Mark-us-Down Logo" className="about-logo" />
               <h2>Mark-us-Down</h2>
             </div>
-            <p className="version">Version 1.0.2</p>
+            <p className="version">Version 1.0.3</p>
             <p className="tagline">A modern, split-pane markdown editor with real-time preview</p>
             <div className="about-links">
               <a 
