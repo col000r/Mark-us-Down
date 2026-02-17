@@ -9,11 +9,14 @@ A fast, native **Markdown Editor** with live preview. Built with Tauri and React
 ## Features
 
 - **Split-pane editor** with live preview and synchronized scrolling
-- **Syntax highlighting** powered by Monaco Editor  
+- **Reading Mode** - hide the editor for distraction-free reading (`Cmd/Ctrl+E`)
+- **Syntax highlighting** powered by Monaco Editor
 - **Native performance** - lightweight Tauri app, not Electron
+- **Multi-window support** - open multiple documents simultaneously
 - **Cross-platform** - macOS, Windows, and Linux
 - **Dark/Light themes** with keyboard shortcut (`Cmd/Ctrl+T`)
 - **Drag & drop** markdown files to open
+- **Zoom controls** - adjust text size to your preference
 
 ## Installation
 
@@ -36,10 +39,15 @@ npm run tauri build
 | Action | Shortcut |
 |--------|----------|
 | New File | `Cmd/Ctrl+N` |
+| New Window | `Cmd/Ctrl+Shift+N` |
 | Open | `Cmd/Ctrl+O` |
 | Save | `Cmd/Ctrl+S` |
 | Save As | `Cmd/Ctrl+Shift+S` |
 | Toggle Theme | `Cmd/Ctrl+T` |
+| Toggle Reading Mode | `Cmd/Ctrl+E` |
+| Zoom In | `Cmd/Ctrl++` |
+| Zoom Out | `Cmd/Ctrl+-` |
+| Reset Zoom | `Cmd/Ctrl+0` |
 
 ## Development
 
@@ -56,7 +64,7 @@ npm run build  # Build for production
 
 ## License
 
-Copyright (C) 2025 [Bright Light Interstellar Ltd.](https://brightlight.rocks)  
+Copyright (C) 2025-2026 [Bright Light Interstellar Ltd.](https://brightlight.rocks)  
 Blog: https://markus.hofer.rocks
 
 [MIT License](LICENSE)

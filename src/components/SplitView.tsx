@@ -6,13 +6,17 @@ interface SplitViewProps {
   rightComponent: React.ReactNode
   className?: string
   initialRatio?: number
+  hideLeft?: boolean
 }
+
+const DIVIDER_WIDTH = 4 // px - must match CSS .split-divider width
 
 export const SplitView: React.FC<SplitViewProps> = ({
   leftComponent,
   rightComponent,
   className = '',
-  initialRatio = 0.5
+  initialRatio = 0.5,
+  hideLeft = false
 }) => {
   const [leftRatio, setLeftRatio] = useState(() => {
     const saved = localStorage.getItem('split-view-ratio')
@@ -58,27 +62,31 @@ export const SplitView: React.FC<SplitViewProps> = ({
   }, [isDragging, handleMouseMove, handleMouseUp])
 
   return (
-    <div 
+    <div
       ref={containerRef}
-      className={`split-view ${className} ${isDragging ? 'dragging' : ''}`}
+      className={`split-view ${className} ${isDragging ? 'dragging' : ''} ${hideLeft ? 'reading-mode' : ''}`}
     >
-      <div 
-        className="split-pane split-pane-left"
-        style={{ width: `${leftRatio * 100}%` }}
-      >
-        {leftComponent}
-      </div>
-      
-      <div 
-        className="split-divider"
-        onMouseDown={handleMouseDown}
-      >
-        <div className="split-handle" />
-      </div>
-      
-      <div 
+      {!hideLeft && (
+        <>
+          <div
+            className="split-pane split-pane-left"
+            style={{ width: `calc(${leftRatio * 100}% - ${leftRatio * DIVIDER_WIDTH}px)` }}
+          >
+            {leftComponent}
+          </div>
+
+          <div
+            className="split-divider"
+            onMouseDown={handleMouseDown}
+          >
+            <div className="split-handle" />
+          </div>
+        </>
+      )}
+
+      <div
         className="split-pane split-pane-right"
-        style={{ width: `${(1 - leftRatio) * 100}%` }}
+        style={{ width: hideLeft ? '100%' : `calc(${(1 - leftRatio) * 100}% - ${(1 - leftRatio) * DIVIDER_WIDTH}px)` }}
       >
         {rightComponent}
       </div>

@@ -19,6 +19,7 @@ function App() {
   const [documentTitle, setDocumentTitle] = useState<string | null>(null)
   const [isWeb, setIsWeb] = useState(false) // Start as false (hide buttons), set true only if web
   const [debugInfo, setDebugInfo] = useState<string>('')
+  const [isReadingMode, setIsReadingMode] = useState(false)
   const isTauri = !isWeb // Derived value for backward compatibility
   
   // Use a ref to track the current theme state to avoid stale closures
@@ -87,10 +88,11 @@ function App() {
       const setupListeners = async () => {
       try {
         console.log('Setting up Tauri event listeners...');
-        const { listen } = await import('@tauri-apps/api/event');
-        
-        // Set up the file-opened listener immediately first
-        const fileOpenedListener = await listen<[string, string]>('file-opened', (event) => {
+        const { getCurrentWindow } = await import('@tauri-apps/api/window');
+        const currentWindow = getCurrentWindow();
+
+        // Set up the file-opened listener on the CURRENT WINDOW (not global)
+        const fileOpenedListener = await currentWindow.listen<[string, string]>('file-opened', (event) => {
           console.log('File opened event received:', event);
           console.log('Event payload:', event.payload);
           console.log('Payload type:', typeof event.payload);
@@ -111,8 +113,8 @@ function App() {
           }
         });
         
-        // Set up file change listener for automatic reloading
-        const fileChangedListener = await listen<[string, string]>('file-changed-externally', (event) => {
+        // Set up file change listener for automatic reloading (window-specific)
+        const fileChangedListener = await currentWindow.listen<[string, string]>('file-changed-externally', (event) => {
           console.log('File changed externally:', event);
           if (Array.isArray(event.payload) && event.payload.length === 2) {
             const [filePath, newContent] = event.payload;
@@ -135,28 +137,29 @@ function App() {
         // Remove catch-all listener as it's causing invalid event name error
         console.log('Event listeners ready to be set up...');
         
+        // Use currentWindow.listen for window-specific events (emit_to targets)
         const unlistenFns = await Promise.all([
-          listen('menu-new-file', () => {
+          currentWindow.listen('menu-new-file', () => {
             console.log('Menu new file event received');
             handleNewFile();
           }),
-          listen('menu-open-file', () => {
+          currentWindow.listen('menu-open-file', () => {
             console.log('Menu open file event received');
             openFile();
           }),
-          listen('menu-save-file', () => {
+          currentWindow.listen('menu-save-file', () => {
             console.log('Menu save file event received');
             handleSaveFile();
           }),
-          listen('menu-save-as-file', () => {
+          currentWindow.listen('menu-save-as-file', () => {
             console.log('Menu save as file event received');
             handleSaveAsFile();
           }),
-          listen('menu-about', () => {
+          currentWindow.listen('menu-about', () => {
             console.log('Menu about event received');
             setShowAbout(true);
           }),
-          listen('menu-debug-info', async () => {
+          currentWindow.listen('menu-debug-info', async () => {
             console.log('Menu debug info event received');
             if (debugInfo) {
               setDebugInfo('');
@@ -164,64 +167,68 @@ function App() {
               await debugArgs();
             }
           }),
-          listen('menu-toggle-theme', () => {
+          currentWindow.listen('menu-toggle-theme', () => {
             console.log('Menu toggle theme event received');
             toggleTheme();
           }),
-          listen('menu-zoom-in', () => {
+          currentWindow.listen('menu-zoom-in', () => {
             console.log('Menu zoom in event received');
             handleZoomIn();
           }),
-          listen('menu-zoom-out', () => {
+          currentWindow.listen('menu-zoom-out', () => {
             console.log('Menu zoom out event received');
             handleZoomOut();
           }),
-          listen('menu-reset-zoom', () => {
+          currentWindow.listen('menu-reset-zoom', () => {
             console.log('Menu reset zoom event received');
             handleResetZoom();
           }),
-          listen('menu-undo', () => {
+          currentWindow.listen('menu-toggle-reading-mode', () => {
+            console.log('Menu toggle reading mode event received');
+            setIsReadingMode(prev => !prev);
+          }),
+          currentWindow.listen('menu-undo', () => {
             console.log('Menu undo event received');
             handleUndo();
           }),
-          listen('menu-redo', () => {
+          currentWindow.listen('menu-redo', () => {
             console.log('Menu redo event received');
             handleRedo();
           }),
-          listen('menu-cut', () => {
+          currentWindow.listen('menu-cut', () => {
             console.log('Menu cut event received');
             handleCut();
           }),
-          listen('menu-copy', () => {
+          currentWindow.listen('menu-copy', () => {
             console.log('Menu copy event received');
             handleCopy();
           }),
-          listen('menu-paste', () => {
+          currentWindow.listen('menu-paste', () => {
             console.log('Menu paste event received');
             handlePaste();
           }),
-          listen('menu-select-all', () => {
+          currentWindow.listen('menu-select-all', () => {
             console.log('Menu select all event received');
             handleSelectAll();
           }),
-          // Add Tauri v2 drag-drop event listeners
-          listen<string[]>('tauri://drag-drop', (event) => {
+          // Window-specific drag-drop event listeners
+          currentWindow.listen<string[]>('tauri://drag-drop', (event) => {
             console.log('Tauri drag-drop event received:', event);
             // This should be handled by the backend, but let's log it
           }),
-          listen('tauri://drag-enter', (event) => {
+          currentWindow.listen('tauri://drag-enter', (event) => {
             console.log('Tauri drag-enter event received:', event);
             setIsDragOver(true);
           }),
-          listen('tauri://drag-leave', (event) => {
+          currentWindow.listen('tauri://drag-leave', (event) => {
             console.log('Tauri drag-leave event received:', event);
             setIsDragOver(false);
           }),
-          listen<string>('file-saved', (event) => {
+          currentWindow.listen<string>('file-saved', (event) => {
             setCurrentFile(event.payload);
             setHasUnsavedChanges(false);
           }),
-          listen<void>('file-new', () => {
+          currentWindow.listen<void>('file-new', () => {
             handleNewFile();
           }),
         ]);
@@ -669,8 +676,11 @@ function App() {
       if (modifier) {
         switch (e.key.toLowerCase()) {
           case 'n':
-            e.preventDefault()
-            handleNewFile()
+            // Only handle Cmd+N (new file), let Cmd+Shift+N (new window) go to menu
+            if (!e.shiftKey) {
+              e.preventDefault()
+              handleNewFile()
+            }
             break
           case 'o':
             e.preventDefault()
@@ -777,12 +787,13 @@ function App() {
             />
           }
           rightComponent={
-            <PreviewPane 
+            <PreviewPane
               content={content}
               onScroll={handlePreviewScroll}
               onMount={handlePreviewMount}
             />
           }
+          hideLeft={isReadingMode}
         />
       </main>
 
@@ -794,7 +805,7 @@ function App() {
               <img src="/ME_Logo192.png" alt="Mark-us-Down Logo" className="about-logo" />
               <h2>Mark-us-Down</h2>
             </div>
-            <p className="version">Version 1.0.3</p>
+            <p className="version">Version 1.0.4</p>
             <p className="tagline">A modern, split-pane markdown editor with real-time preview</p>
             <div className="about-links">
               <a 

@@ -1,6 +1,6 @@
 [package]
 name = "mark-us-down"
-version = "1.0.3"
+version = "1.0.4"
 description = "Mark-us-Down: A modern markdown editor with live preview"
 authors = ["Mark-us-Down Team"]
 license = ""
@@ -28,3 +28,4 @@ tauri-plugin-fs = "2"
 tauri-plugin-single-instance = "2"
 tauri-plugin-shell = "2"
 notify = "6.1"
+tokio = { version = "1", features = ["time"] }

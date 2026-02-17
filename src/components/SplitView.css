@@ -52,3 +52,8 @@
   background-color: var(--header-text);
   height: 80px;
 }
+
+/* Reading mode - full width preview without left border */
+.split-view.reading-mode .split-pane-right {
+  border-left: none;
+}
