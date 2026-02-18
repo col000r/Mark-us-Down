@@ -3,12 +3,15 @@ use tauri::webview::WebviewWindowBuilder;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicBool, Ordering};
 use notify::{Config, Event, RecommendedWatcher, RecursiveMode, Watcher};
 use std::collections::HashMap;
 
 // Counter for generating unique window labels
 static WINDOW_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+// Flag to track if a window was created from a file open event (macOS)
+static FILE_OPEN_HANDLED: AtomicBool = AtomicBool::new(false);
 
 // File watcher state - keyed by (window_label, file_path) to support per-window watchers
 type FileWatchers = Arc<Mutex<HashMap<String, RecommendedWatcher>>>;
@@ -334,19 +337,6 @@ fn cleanup_window_watchers(app_handle: &tauri::AppHandle, window_label: &str) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // Initial debug log with timestamp and args
-    let args: Vec<String> = std::env::args().collect();
-    let debug_info = format!(
-        "Application started at {}\nCommand line arguments ({}): {:?}\nMulti-window mode enabled\n",
-        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs(),
-        args.len(),
-        args
-    );
-    if let Some(home_dir) = std::env::var_os("HOME") {
-        let debug_path = std::path::Path::new(&home_dir).join("mark_us_down_debug.log");
-        let _ = fs::write(&debug_path, &debug_info);
-    }
-
     tauri::Builder::default()
         .manage(FileWatchers::default())
         .plugin(tauri_plugin_dialog::init())
@@ -563,22 +553,42 @@ pub fn run() {
                 // macOS-specific file opening via "Open With" or double-click
                 #[cfg(target_os = "macos")]
                 tauri::RunEvent::Opened { urls } => {
-                    println!("RunEvent::Opened received with {} URLs: {:?}", urls.len(), urls);
-
                     // Handle file opening from macOS "Open With" or double-click
-                    // Create a NEW window for each file
+                    // Note: On cold start, this fires BEFORE any windows exist (windows array is empty in config)
+                    let mut first_file = true;
+
                     for url in urls {
                         let path = url.to_file_path().unwrap_or_else(|_| std::path::PathBuf::from(url.as_str()));
                         let path_str = path.to_string_lossy().to_string();
 
-                        println!("Processing opened file: {}", path_str);
-
                         if path.exists() && (path_str.ends_with(".md") || path_str.ends_with(".markdown") || path_str.ends_with(".txt")) {
                             match fs::read_to_string(&path) {
                                 Ok(content) => {
-                                    println!("Creating new window for opened file: {}", path_str);
+                                    // For the first file, try to reuse any existing window
+                                    if first_file {
+                                        let reuse_window = app_handle.get_webview_window("main")
+                                            .or_else(|| app_handle.webview_windows().into_values().next());
+
+                                        if let Some(existing_window) = reuse_window {
+                                            // Reuse existing window for the first file
+                                            let window_label = existing_window.label().to_string();
+                                            let window_clone = existing_window.clone();
+                                            let path_clone = path_str.clone();
+                                            tauri::async_runtime::spawn(async move {
+                                                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                                                let _ = window_clone.emit_to(&window_label, "file-opened", (&path_clone, &content));
+                                            });
+                                            FILE_OPEN_HANDLED.store(true, Ordering::SeqCst);
+                                            first_file = false;
+                                            continue;
+                                        }
+                                    }
+
+                                    // Create a new window for the file
                                     match create_document_window(app_handle, Some(path_str.clone()), Some(content)) {
-                                        Ok(_) => println!("Created new window for file: {}", path_str),
+                                        Ok(_) => {
+                                            FILE_OPEN_HANDLED.store(true, Ordering::SeqCst);
+                                        },
                                         Err(e) => eprintln!("Failed to create window for file {}: {}", path_str, e),
                                     }
                                 }
@@ -586,6 +596,7 @@ pub fn run() {
                                     eprintln!("Error reading opened file {}: {}", path_str, e);
                                 }
                             }
+                            first_file = false;
                         }
                     }
                 }
@@ -600,6 +611,25 @@ pub fn run() {
                             Err(e) => eprintln!("Failed to create window on reopen: {}", e),
                         }
                     }
+                }
+                // When the app is ready, check if we need to create a default window
+                // This handles normal launch (not via file double-click)
+                tauri::RunEvent::Ready => {
+                    let app_handle_clone = app_handle.clone();
+                    tauri::async_runtime::spawn(async move {
+                        // Wait a bit to allow RunEvent::Opened to fire first (if launching via file)
+                        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+                        // Check if any window was created
+                        let windows = app_handle_clone.webview_windows();
+                        if windows.is_empty() && !FILE_OPEN_HANDLED.load(Ordering::SeqCst) {
+                            // No windows and no file was opened - create a default window
+                            match create_document_window(&app_handle_clone, None, None) {
+                                Ok(_) => println!("Created default window on startup"),
+                                Err(e) => eprintln!("Failed to create default window: {}", e),
+                            }
+                        }
+                    });
                 }
                 _ => {}
             }

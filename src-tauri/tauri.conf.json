@@ -1,29 +1,14 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Mark-us-Down",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "identifier": "rocks.brightlight.markusdown",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:3200"
   },
   "app": {
-    "windows": [
-      {
-        "title": "Mark-us-Down",
-        "width": 1200,
-        "height": 800,
-        "minWidth": 600,
-        "minHeight": 400,
-        "resizable": true,
-        "fullscreen": false,
-        "center": true,
-        "titleBarStyle": "Visible",
-        "hiddenTitle": false,
-        "decorations": true,
-        "dragDropEnabled": true
-      }
-    ],
+    "windows": [],
     "security": {
       "csp": null
     },

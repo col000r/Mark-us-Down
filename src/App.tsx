@@ -805,7 +805,7 @@ function App() {
               <img src="/ME_Logo192.png" alt="Mark-us-Down Logo" className="about-logo" />
               <h2>Mark-us-Down</h2>
             </div>
-            <p className="version">Version 1.0.4</p>
+            <p className="version">Version 1.0.5</p>
             <p className="tagline">A modern, split-pane markdown editor with real-time preview</p>
             <div className="about-links">
               <a 
@@ -827,7 +827,7 @@ function App() {
                 https://brightlight.rocks
               </a>
             </div>
-            <p className="copyright">Copyright © 2025 Bright Light Interstellar Ltd</p>
+            <p className="copyright">Copyright © 2026 Bright Light Interstellar Ltd</p>
             <div className="modal-buttons">
               <button onClick={() => setShowAbout(false)}>Close</button>
             </div>
