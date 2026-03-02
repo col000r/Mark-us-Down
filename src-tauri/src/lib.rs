@@ -2,10 +2,10 @@ use tauri::{Manager, menu::*, Emitter, WindowEvent, WebviewUrl};
 use tauri::webview::WebviewWindowBuilder;
 use std::fs;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::sync::atomic::{AtomicU64, AtomicBool, Ordering};
 use notify::{Config, Event, RecommendedWatcher, RecursiveMode, Watcher};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 // Counter for generating unique window labels
 static WINDOW_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -13,8 +13,35 @@ static WINDOW_COUNTER: AtomicU64 = AtomicU64::new(0);
 // Flag to track if a window was created from a file open event (macOS)
 static FILE_OPEN_HANDLED: AtomicBool = AtomicBool::new(false);
 
+// macOS dock menu: app handle and menu pointer stored globally
+#[cfg(target_os = "macos")]
+static DOCK_APP_HANDLE: OnceLock<tauri::AppHandle> = OnceLock::new();
+
+// Raw pointer to retained NSMenu (always accessed on main thread)
+#[cfg(target_os = "macos")]
+static DOCK_MENU_PTR: std::sync::atomic::AtomicPtr<std::ffi::c_void> =
+    std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
+
 // File watcher state - keyed by (window_label, file_path) to support per-window watchers
 type FileWatchers = Arc<Mutex<HashMap<String, RecommendedWatcher>>>;
+
+// Tracks which windows are currently empty (no file, no content)
+type EmptyWindows = Arc<Mutex<HashSet<String>>>;
+
+// Pending files to open, keyed by window label — set before the window loads,
+// consumed by the frontend via the `window_ready` command once it has initialized.
+// Newtype wrapper so Tauri's state manager sees a distinct TypeId from FileWatchers.
+struct PendingFiles(Arc<Mutex<HashMap<String, (String, String)>>>);
+impl Default for PendingFiles {
+    fn default() -> Self { PendingFiles(Arc::new(Mutex::new(HashMap::new()))) }
+}
+
+// Windows whose frontends have fully initialized and registered their event listeners.
+// Newtype wrapper so Tauri's state manager sees a distinct TypeId from EmptyWindows.
+struct ReadyWindows(Arc<Mutex<HashSet<String>>>);
+impl Default for ReadyWindows {
+    fn default() -> Self { ReadyWindows(Arc::new(Mutex::new(HashSet::new()))) }
+}
 
 /// Generate a unique window label
 fn generate_window_label() -> String {
@@ -40,18 +67,22 @@ fn create_document_window(
         .build()
         .map_err(|e| format!("Failed to create window: {}", e))?;
 
-    // If we have a file to open, emit the event after a short delay to let frontend initialize
+    // If no file is being opened, register this window as empty
+    if file_path.is_none() {
+        let empty_windows: tauri::State<EmptyWindows> = app_handle.state::<EmptyWindows>();
+        let mut empty_set = empty_windows.inner().lock().unwrap();
+        empty_set.insert(label.clone());
+        println!("Registered window {} as empty", label);
+    }
+
+    // If we have a file to open, store it as a pending file. The frontend will
+    // retrieve it via the `window_ready` command once it has finished initializing.
+    // This avoids a race where a fixed-delay emit fires before the listener is set up.
     if let (Some(path), Some(file_content)) = (file_path, content) {
-        let window_clone = window.clone();
-        let window_label = window.label().to_string();
-        tauri::async_runtime::spawn(async move {
-            // Give the frontend time to initialize
-            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-            match window_clone.emit_to(&window_label, "file-opened", (&path, &file_content)) {
-                Ok(_) => println!("Successfully emitted file-opened event to new window for: {}", path),
-                Err(e) => eprintln!("Failed to emit file-opened event: {}", e),
-            }
-        });
+        let pending_files: tauri::State<PendingFiles> = app_handle.state::<PendingFiles>();
+        let mut pending = pending_files.inner().0.lock().unwrap();
+        pending.insert(label.clone(), (path.clone(), file_content));
+        println!("Stored pending file for window {}: {}", label, path);
     }
 
     Ok(window)
@@ -274,6 +305,45 @@ async fn stop_file_watcher(window: tauri::Window, app_handle: tauri::AppHandle, 
 }
 
 #[tauri::command]
+async fn set_window_empty(window: tauri::Window, app_handle: tauri::AppHandle, is_empty: bool) -> Result<(), String> {
+    let empty_windows: tauri::State<EmptyWindows> = app_handle.state::<EmptyWindows>();
+    let mut empty_set = empty_windows.inner().lock().unwrap();
+    let label = window.label().to_string();
+    if is_empty {
+        empty_set.insert(label.clone());
+    } else {
+        empty_set.remove(&label);
+    }
+    println!("Window {} empty state updated to: {}", label, is_empty);
+    Ok(())
+}
+
+/// Called by the frontend once it has initialized and registered all event listeners.
+/// Marks the window as ready and returns any file that was queued to open
+/// before the frontend was available (e.g. cold-start file double-click).
+#[tauri::command]
+async fn window_ready(window: tauri::Window, app_handle: tauri::AppHandle) -> Result<Option<(String, String)>, String> {
+    let window_label = window.label().to_string();
+
+    // Mark as ready so future file-open events can emit directly
+    {
+        let ready_windows: tauri::State<ReadyWindows> = app_handle.state::<ReadyWindows>();
+        let mut ready_set = ready_windows.inner().0.lock().unwrap();
+        ready_set.insert(window_label.clone());
+        println!("Window {} marked as ready", window_label);
+    }
+
+    // Return and clear any pending file
+    let pending_files: tauri::State<PendingFiles> = app_handle.state::<PendingFiles>();
+    let mut pending = pending_files.inner().0.lock().unwrap();
+    let result = pending.remove(&window_label);
+    if let Some((ref path, _)) = result {
+        println!("Returning pending file to window {}: {}", window_label, path);
+    }
+    Ok(result)
+}
+
+#[tauri::command]
 async fn open_file_dialog(window: tauri::WebviewWindow, app_handle: tauri::AppHandle) -> Result<(), String> {
     use tauri_plugin_dialog::DialogExt;
 
@@ -299,6 +369,53 @@ async fn open_file_dialog(window: tauri::WebviewWindow, app_handle: tauri::AppHa
     });
 
     Ok(())
+}
+
+/// Core file-open logic shared by RunEvent::Opened, application:openFile:, and drag-drop.
+/// Reuses an empty window if one is available; otherwise creates a new document window.
+fn handle_file_open(app: &tauri::AppHandle, path_str: String, content: String) {
+    println!("handle_file_open: {}", path_str);
+
+    let empty_window_label = {
+        let empty_windows: tauri::State<EmptyWindows> = app.state::<EmptyWindows>();
+        let mut empty_set = empty_windows.inner().lock().unwrap();
+        let label = empty_set.iter()
+            .find(|label| app.get_webview_window(label).is_some())
+            .cloned();
+        if let Some(ref l) = label {
+            empty_set.remove(l);
+        }
+        label
+    };
+
+    if let Some(window_label) = empty_window_label {
+        println!("Reusing empty window {} for file: {}", window_label, path_str);
+        let is_ready = {
+            let ready_windows: tauri::State<ReadyWindows> = app.state::<ReadyWindows>();
+            ready_windows.inner().0.lock().unwrap().contains(&window_label)
+        };
+        if is_ready {
+            if let Some(window) = app.get_webview_window(&window_label) {
+                let wl = window_label.clone();
+                let p = path_str.clone();
+                let c = content.clone();
+                tauri::async_runtime::spawn(async move {
+                    let _ = window.emit_to(&wl, "file-opened", (p, c));
+                });
+            }
+        } else {
+            let pending_files: tauri::State<PendingFiles> = app.state::<PendingFiles>();
+            pending_files.inner().0.lock().unwrap()
+                .insert(window_label.clone(), (path_str, content));
+            println!("Window {} not ready yet; stored as pending file", window_label);
+        }
+    } else {
+        println!("No empty window; creating new window for: {}", path_str);
+        match create_document_window(app, Some(path_str.clone()), Some(content)) {
+            Ok(_) => {},
+            Err(e) => eprintln!("Failed to create window for file {}: {}", path_str, e),
+        }
+    }
 }
 
 /// Helper function to get the focused window or fall back to any available window
@@ -335,10 +452,159 @@ fn cleanup_window_watchers(app_handle: &tauri::AppHandle, window_label: &str) {
     }
 }
 
+/// Sets up the macOS dock right-click menu with a "New Window" item.
+///
+/// Tauri 2.x has no built-in dock menu API, so this injects two methods into
+/// tao's `TaoAppDelegateParent` class using `class_addMethod`:
+///   - `applicationDockMenu:` — returns the NSMenu for the dock right-click
+///   - `newWindowAction:` — handles the menu item action via the responder chain
+///
+/// The NSMenu is built lazily inside `applicationDockMenu:` on the first
+/// right-click (AppKit always calls this on the main thread), avoiding any
+/// AppKit object creation during the Tauri setup phase.
+#[cfg(target_os = "macos")]
+fn setup_dock_menu(app_handle: &tauri::AppHandle) {
+    use std::ffi::c_char;
+    use objc2::{ffi as objc_ffi, runtime::{AnyClass, AnyObject}, sel};
+
+    DOCK_APP_HANDLE.set(app_handle.clone()).ok();
+
+    // Called when the user clicks "New Window" in the dock right-click menu.
+    // Dispatches window creation through the tao event loop for safety.
+    unsafe extern "C-unwind" fn new_window_action(
+        _this: *mut AnyObject,
+        _sel: objc2::runtime::Sel,
+        _sender: *mut AnyObject,
+    ) {
+        if let Some(app) = DOCK_APP_HANDLE.get() {
+            let app = app.clone();
+            let _ = app.clone().run_on_main_thread(move || {
+                if let Err(e) = create_document_window(&app, None, None) {
+                    eprintln!("Failed to create window from dock menu: {}", e);
+                }
+            });
+        }
+    }
+
+    // Called by macOS when a file is opened via Finder "Open With" or double-click.
+    // tao only implements application:openURLs:, so CFBundleDocumentTypes-based opens
+    // never reach RunEvent::Opened. This fills that gap.
+    unsafe extern "C-unwind" fn application_open_file(
+        _this: *mut AnyObject,
+        _sel: objc2::runtime::Sel,
+        _sender: *mut AnyObject,  // NSApplication*
+        filename: *mut AnyObject, // NSString*
+    ) -> bool {
+        use objc2_foundation::NSString;
+        let path_str = {
+            let ns_str = &*(filename as *const NSString);
+            ns_str.to_string()
+        };
+        println!("application:openFile: received: {}", path_str);
+        if let Some(app) = DOCK_APP_HANDLE.get() {
+            match std::fs::read_to_string(&path_str) {
+                Ok(content) => {
+                    let app_clone = app.clone();
+                    let _ = app.run_on_main_thread(move || {
+                        handle_file_open(&app_clone, path_str, content);
+                    });
+                }
+                Err(e) => {
+                    eprintln!("application:openFile: failed to read {}: {}", path_str, e);
+                }
+            }
+        }
+        true
+    }
+
+    // Returns the NSMenu shown when the user right-clicks the dock icon.
+    // Built lazily on first call — AppKit always calls this on the main thread.
+    unsafe extern "C-unwind" fn application_dock_menu(
+        _this: *mut AnyObject,
+        _sel: objc2::runtime::Sel,
+        _app: *mut AnyObject,
+    ) -> *mut AnyObject {
+        use objc2::rc::Retained;
+        use objc2_app_kit::{NSMenu, NSMenuItem};
+        use objc2_foundation::{MainThreadMarker, ns_string};
+
+        let existing = DOCK_MENU_PTR.load(Ordering::Acquire);
+        if !existing.is_null() {
+            return existing as *mut AnyObject;
+        }
+
+        // Build the menu on first call. nil target → responder chain finds
+        // newWindowAction: on TaoAppDelegateParent (the app delegate).
+        let mtm = MainThreadMarker::new_unchecked();
+        let menu = NSMenu::new(mtm);
+        let item = NSMenuItem::new(mtm);
+        item.setTitle(ns_string!("New Window"));
+        item.setAction(Some(objc2::sel!(newWindowAction:)));
+        menu.addItem(&item);
+
+        // Leak the menu so it lives for the app's lifetime
+        let menu_raw = Retained::into_raw(menu) as *mut std::ffi::c_void;
+        DOCK_MENU_PTR.store(menu_raw, Ordering::Release);
+        menu_raw as *mut AnyObject
+    }
+
+    unsafe {
+        if let Some(delegate_cls) = AnyClass::get(c"TaoAppDelegateParent") {
+            let cls_ptr = (delegate_cls as *const AnyClass).cast_mut().cast();
+
+            // Inject newWindowAction: so the responder chain finds it on the app delegate.
+            // Type encoding: v24@0:8@16 — void return, (self id, SEL, sender id)
+            let new_window_imp: objc2::runtime::Imp = std::mem::transmute::<
+                unsafe extern "C-unwind" fn(*mut AnyObject, objc2::runtime::Sel, *mut AnyObject),
+                objc2::runtime::Imp,
+            >(new_window_action);
+            objc_ffi::class_addMethod(
+                cls_ptr,
+                sel!(newWindowAction:),
+                new_window_imp,
+                b"v24@0:8@16\0".as_ptr() as *const c_char,
+            );
+
+            // Inject applicationDockMenu: — NSApplicationDelegate dock menu callback.
+            // Type encoding: @24@0:8@16 — id return, (self id, SEL, NSApplication* id)
+            let dock_menu_imp: objc2::runtime::Imp = std::mem::transmute::<
+                unsafe extern "C-unwind" fn(*mut AnyObject, objc2::runtime::Sel, *mut AnyObject) -> *mut AnyObject,
+                objc2::runtime::Imp,
+            >(application_dock_menu);
+            let success = objc_ffi::class_addMethod(
+                cls_ptr,
+                sel!(applicationDockMenu:),
+                dock_menu_imp,
+                b"@24@0:8@16\0".as_ptr() as *const c_char,
+            );
+            println!("Dock menu injected into TaoAppDelegateParent: {}", success.as_bool());
+
+            // Inject application:openFile: — handles Finder file opens via CFBundleDocumentTypes.
+            // Type encoding: B32@0:8@16@24 — bool return, (self id, SEL, NSApplication* id, NSString* id)
+            let open_file_imp: objc2::runtime::Imp = std::mem::transmute::<
+                unsafe extern "C-unwind" fn(*mut AnyObject, objc2::runtime::Sel, *mut AnyObject, *mut AnyObject) -> bool,
+                objc2::runtime::Imp,
+            >(application_open_file);
+            let open_file_success = objc_ffi::class_addMethod(
+                cls_ptr,
+                sel!(application:openFile:),
+                open_file_imp,
+                b"B32@0:8@16@24\0".as_ptr() as *const c_char,
+            );
+            println!("application:openFile: injected into TaoAppDelegateParent: {}", open_file_success.as_bool());
+        } else {
+            eprintln!("TaoAppDelegateParent class not found; dock menu skipped");
+        }
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .manage(FileWatchers::default())
+        .manage(EmptyWindows::default())
+        .manage(PendingFiles::default())
+        .manage(ReadyWindows::default())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_shell::init())
@@ -453,19 +719,24 @@ pub fn run() {
 
             app.set_menu(menu)?;
 
-            // If a file was passed via command line, emit it to the main window after a delay
+            // Set up the macOS dock right-click menu
+            #[cfg(target_os = "macos")]
+            setup_dock_menu(app.handle());
+
+            // If launched with a file argument, create that window now on the main thread.
+            // For normal (no-file) launches, defer empty window creation to RunEvent::Ready
+            // so that application:openFile: (macOS Finder double-click) has a chance to
+            // fire first — preventing a stale empty window from being created alongside
+            // the file window that application:openFile: opens.
             if let Some((file_path, content)) = file_to_open {
-                let window = app.get_webview_window("main").unwrap();
-                let window_clone = window.clone();
-                let window_label = window.label().to_string();
-                tauri::async_runtime::spawn(async move {
-                    tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
-                    match window_clone.emit_to(&window_label, "file-opened", (file_path.clone(), content)) {
-                        Ok(_) => println!("Successfully emitted file-opened event for: {}", file_path),
-                        Err(e) => eprintln!("Failed to emit file-opened event: {}", e),
-                    }
-                });
+                // Launched from the command line with a file argument
+                if let Err(e) = create_document_window(app.handle(), Some(file_path), Some(content)) {
+                    eprintln!("Failed to create window for file: {}", e);
+                }
+                FILE_OPEN_HANDLED.store(true, Ordering::SeqCst);
             }
+            // else: no window created here; RunEvent::Ready creates the empty window
+            // if no file open has occurred by then.
 
             Ok(())
         })
@@ -479,7 +750,9 @@ pub fn run() {
             update_theme_menu,
             debug_args,
             start_file_watcher,
-            stop_file_watcher
+            stop_file_watcher,
+            set_window_empty,
+            window_ready
         ])
         .on_menu_event(handle_menu_event)
         .on_window_event(|window, event| match event {
@@ -491,6 +764,23 @@ pub fn run() {
 
                 // Clean up file watchers for this window
                 cleanup_window_watchers(&app_handle, &window_label);
+
+                // Remove from empty windows tracking
+                {
+                    let empty_windows: tauri::State<EmptyWindows> = app_handle.state::<EmptyWindows>();
+                    let mut empty_set = empty_windows.inner().lock().unwrap();
+                    empty_set.remove(&window_label);
+                }
+
+                // Remove from ready/pending tracking
+                {
+                    let ready_windows: tauri::State<ReadyWindows> = app_handle.state::<ReadyWindows>();
+                    ready_windows.inner().0.lock().unwrap().remove(&window_label);
+                }
+                {
+                    let pending_files: tauri::State<PendingFiles> = app_handle.state::<PendingFiles>();
+                    pending_files.inner().0.lock().unwrap().remove(&window_label);
+                }
 
                 // Count remaining windows
                 let windows = app_handle.webview_windows();
@@ -550,53 +840,23 @@ pub fn run() {
         .expect("error while building tauri application")
         .run(|app_handle, event| {
             match event {
-                // macOS-specific file opening via "Open With" or double-click
+                // macOS-specific file opening via URL scheme (CFBundleURLTypes).
+                // Note: Finder double-click / "Open With" via CFBundleDocumentTypes goes through
+                // application:openFile: (injected above), NOT here.  This handler catches
+                // any URL-scheme opens that tao routes through application:openURLs:.
                 #[cfg(target_os = "macos")]
                 tauri::RunEvent::Opened { urls } => {
-                    // Handle file opening from macOS "Open With" or double-click
-                    // Note: On cold start, this fires BEFORE any windows exist (windows array is empty in config)
-                    let mut first_file = true;
-
                     for url in urls {
                         let path = url.to_file_path().unwrap_or_else(|_| std::path::PathBuf::from(url.as_str()));
                         let path_str = path.to_string_lossy().to_string();
-
                         if path.exists() && (path_str.ends_with(".md") || path_str.ends_with(".markdown") || path_str.ends_with(".txt")) {
                             match fs::read_to_string(&path) {
                                 Ok(content) => {
-                                    // For the first file, try to reuse any existing window
-                                    if first_file {
-                                        let reuse_window = app_handle.get_webview_window("main")
-                                            .or_else(|| app_handle.webview_windows().into_values().next());
-
-                                        if let Some(existing_window) = reuse_window {
-                                            // Reuse existing window for the first file
-                                            let window_label = existing_window.label().to_string();
-                                            let window_clone = existing_window.clone();
-                                            let path_clone = path_str.clone();
-                                            tauri::async_runtime::spawn(async move {
-                                                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-                                                let _ = window_clone.emit_to(&window_label, "file-opened", (&path_clone, &content));
-                                            });
-                                            FILE_OPEN_HANDLED.store(true, Ordering::SeqCst);
-                                            first_file = false;
-                                            continue;
-                                        }
-                                    }
-
-                                    // Create a new window for the file
-                                    match create_document_window(app_handle, Some(path_str.clone()), Some(content)) {
-                                        Ok(_) => {
-                                            FILE_OPEN_HANDLED.store(true, Ordering::SeqCst);
-                                        },
-                                        Err(e) => eprintln!("Failed to create window for file {}: {}", path_str, e),
-                                    }
+                                    handle_file_open(app_handle, path_str, content);
+                                    FILE_OPEN_HANDLED.store(true, Ordering::SeqCst);
                                 }
-                                Err(e) => {
-                                    eprintln!("Error reading opened file {}: {}", path_str, e);
-                                }
+                                Err(e) => eprintln!("Error reading opened file {}: {}", path_str, e),
                             }
-                            first_file = false;
                         }
                     }
                 }
@@ -612,24 +872,17 @@ pub fn run() {
                         }
                     }
                 }
-                // When the app is ready, check if we need to create a default window
-                // This handles normal launch (not via file double-click)
+                // Primary path for normal (no-file) launches: setup() defers empty
+                // window creation here so that application:openFile: (Finder cold-start)
+                // can fire first. If a file was already opened, this is a no-op.
                 tauri::RunEvent::Ready => {
-                    let app_handle_clone = app_handle.clone();
-                    tauri::async_runtime::spawn(async move {
-                        // Wait a bit to allow RunEvent::Opened to fire first (if launching via file)
-                        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-
-                        // Check if any window was created
-                        let windows = app_handle_clone.webview_windows();
-                        if windows.is_empty() && !FILE_OPEN_HANDLED.load(Ordering::SeqCst) {
-                            // No windows and no file was opened - create a default window
-                            match create_document_window(&app_handle_clone, None, None) {
-                                Ok(_) => println!("Created default window on startup"),
-                                Err(e) => eprintln!("Failed to create default window: {}", e),
-                            }
+                    let windows = app_handle.webview_windows();
+                    if windows.is_empty() && !FILE_OPEN_HANDLED.load(Ordering::SeqCst) {
+                        println!("RunEvent::Ready: no window found, creating fallback window");
+                        if let Err(e) = create_document_window(app_handle, None, None) {
+                            eprintln!("Failed to create fallback window: {}", e);
                         }
-                    });
+                    }
                 }
                 _ => {}
             }

@@ -248,8 +248,26 @@ function App() {
 
       console.log('About to setup listeners...');
       await setupListeners();
+
+      // Signal to the backend that this window is ready and retrieve any file
+      // that was queued before the frontend finished initializing (e.g. a file
+      // double-clicked in Finder on a cold start).
+      try {
+        const { invoke } = await import('@tauri-apps/api/core');
+        const pendingFile = await invoke<[string, string] | null>('window_ready');
+        if (Array.isArray(pendingFile) && pendingFile.length === 2) {
+          const [filePath, fileContent] = pendingFile;
+          console.log('Loading pending file from backend:', filePath);
+          setCurrentFile(filePath);
+          setContent(fileContent);
+          setHasUnsavedChanges(false);
+          startFileWatcher(filePath);
+        }
+      } catch (error) {
+        console.error('Error calling window_ready:', error);
+      }
     };
-    
+
     initializeApp();
     
     return () => {
@@ -740,6 +758,18 @@ function App() {
     }
   }, [currentFile])
 
+  // Report window empty state to backend so it knows whether to reuse this window
+  // when opening files via Finder double-click
+  const isWindowEmptyRef = useRef<boolean | null>(null)
+  useEffect(() => {
+    const isEmpty = currentFile === null && content === ''
+    if (isWindowEmptyRef.current === isEmpty) return
+    isWindowEmptyRef.current = isEmpty
+    import('@tauri-apps/api/core').then(({ invoke }) => {
+      invoke('set_window_empty', { isEmpty }).catch(() => {})
+    }).catch(() => {})
+  }, [currentFile, content])
+
 
   return (
     <div 
@@ -805,7 +835,7 @@ function App() {
               <img src="/ME_Logo192.png" alt="Mark-us-Down Logo" className="about-logo" />
               <h2>Mark-us-Down</h2>
             </div>
-            <p className="version">Version 1.0.5</p>
+            <p className="version">Version 1.0.6</p>
             <p className="tagline">A modern, split-pane markdown editor with real-time preview</p>
             <div className="about-links">
               <a 
