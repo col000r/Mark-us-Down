@@ -173,6 +173,8 @@ async fn update_theme_menu(app_handle: tauri::AppHandle, is_dark: bool) -> Resul
         .item(&MenuItemBuilder::new("Save").id("save").accelerator("CmdOrCtrl+S").build(&app_handle)?)
         .item(&MenuItemBuilder::new("Save As...").id("save_as").accelerator("CmdOrCtrl+Shift+S").build(&app_handle)?)
         .separator()
+        .item(&MenuItemBuilder::new("Print...").id("print").accelerator("CmdOrCtrl+P").build(&app_handle)?)
+        .separator()
         .item(&MenuItemBuilder::new("Close").id("close").accelerator("CmdOrCtrl+W").build(&app_handle)?)
         .build()?;
 
@@ -681,6 +683,8 @@ pub fn run() {
                 .item(&MenuItemBuilder::new("Save").id("save").accelerator("CmdOrCtrl+S").build(app)?)
                 .item(&MenuItemBuilder::new("Save As...").id("save_as").accelerator("CmdOrCtrl+Shift+S").build(app)?)
                 .separator()
+                .item(&MenuItemBuilder::new("Print...").id("print").accelerator("CmdOrCtrl+P").build(app)?)
+                .separator()
                 .item(&MenuItemBuilder::new("Close").id("close").accelerator("CmdOrCtrl+W").build(app)?)
                 .build()?;
 
@@ -938,6 +942,14 @@ fn handle_menu_event(app: &tauri::AppHandle, event: tauri::menu::MenuEvent) {
         "save_as" => {
             if let Some(window) = target_window {
                 let _ = window.emit_to(window.label(), "menu-save-as-file", ());
+            }
+        }
+        "print" => {
+            if let Some(window) = target_window {
+                match window.print() {
+                    Ok(_) => println!("Print dialog opened"),
+                    Err(e) => eprintln!("Failed to open print dialog: {}", e),
+                }
             }
         }
         "close" => {

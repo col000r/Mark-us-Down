@@ -309,3 +309,110 @@
   border-radius: 4px;
   border: 1px solid var(--border-secondary);
 }
+
+/* Print styles - show only the formatted preview */
+@page {
+  margin: 15mm 0;
+}
+
+@media print {
+  html, body, #root {
+    height: auto !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: white !important;
+  }
+
+  .App-header,
+  .split-pane-left,
+  .split-divider,
+  .about-overlay,
+  .App.drag-over::after {
+    display: none !important;
+  }
+
+  .App {
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  .editor-container {
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  .split-view {
+    display: block !important;
+    height: auto !important;
+    overflow: visible !important;
+    width: 100% !important;
+  }
+
+  .split-pane-right {
+    width: 100% !important;
+    border-left: none !important;
+  }
+
+  .split-pane {
+    height: auto !important;
+    overflow: visible !important;
+    flex-shrink: 1 !important;
+  }
+
+  .preview-pane {
+    height: auto !important;
+    overflow: visible !important;
+    background: white !important;
+  }
+
+  .preview-content {
+    color: black !important;
+    padding: 0 20mm !important;
+    max-width: 100% !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
+  }
+
+  .preview-content pre {
+    border: 1px solid #ccc !important;
+    background: #f6f8fa !important;
+    box-shadow: none !important;
+  }
+
+  .preview-content code {
+    background: #f6f8fa !important;
+    border-color: #ddd !important;
+  }
+
+  .preview-content blockquote {
+    border-left-color: #666 !important;
+    background: #f9f9f9 !important;
+    color: #333 !important;
+  }
+
+  .preview-content table th,
+  .preview-content table td {
+    border-color: #ccc !important;
+  }
+
+  .preview-content table th {
+    background: #f0f0f0 !important;
+  }
+
+  .preview-content a {
+    color: #0969da !important;
+  }
+
+  .preview-content h1,
+  .preview-content h2 {
+    border-bottom-color: #ccc !important;
+  }
+
+  .preview-content h6 {
+    color: #666 !important;
+  }
+
+  .preview-content img {
+    box-shadow: none !important;
+  }
+}
