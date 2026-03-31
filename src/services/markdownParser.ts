@@ -291,6 +291,18 @@ export class MarkdownParser {
   }
 
   /**
+   * Escape raw-text/RCDATA HTML elements that break DOMPurify's internal parser.
+   * Tags like <title>, <style>, <textarea>, <xmp> cause the HTML parser to treat
+   * everything after them as raw text until a matching closing tag. Without a closing
+   * tag, all subsequent HTML is swallowed and lost during sanitization.
+   * Tags inside <pre><code> blocks are already entity-escaped by markdown-it.
+   */
+  private escapeRawTextElements(html: string): string {
+    return html.replace(/<(\/?\s*(?:title|textarea|xmp|noembed|noframes|plaintext))(\s[^>]*)?\/?>/gi,
+      (_match, tag, attrs) => `&lt;${tag}${attrs || ''}&gt;`);
+  }
+
+  /**
    * Parse markdown text to HTML with sanitization and caching
    * @param markdown - The markdown text to parse
    * @returns Sanitized HTML string
@@ -304,7 +316,7 @@ export class MarkdownParser {
       }
 
       const rawHtml = this.md.render(markdown);
-      const sanitizedHtml = DOMPurify.sanitize(rawHtml, this.sanitizeConfig as any) as unknown as string;
+      const sanitizedHtml = DOMPurify.sanitize(this.escapeRawTextElements(rawHtml), this.sanitizeConfig as any) as unknown as string;
       
       // Store in cache with size management
       this.addToCache(markdown, sanitizedHtml);
@@ -332,7 +344,7 @@ export class MarkdownParser {
       }
 
       const rawHtml = this.md.renderInline(markdown);
-      const sanitizedHtml = DOMPurify.sanitize(rawHtml, this.sanitizeConfig as any) as unknown as string;
+      const sanitizedHtml = DOMPurify.sanitize(this.escapeRawTextElements(rawHtml), this.sanitizeConfig as any) as unknown as string;
       
       // Store in cache with size management
       this.addToCache(cacheKey, sanitizedHtml);
