@@ -819,6 +819,7 @@ function App() {
           rightComponent={
             <PreviewPane
               content={content}
+              currentFile={currentFile}
               onScroll={handlePreviewScroll}
               onMount={handlePreviewMount}
             />

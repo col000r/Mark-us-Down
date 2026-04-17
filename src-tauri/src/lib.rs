@@ -148,6 +148,30 @@ async fn read_file(window: tauri::Window, path: String) -> Result<String, String
 }
 
 #[tauri::command]
+async fn read_binary_file(path: String) -> Result<String, String> {
+    use std::io::Read;
+    let mut file = fs::File::open(&path).map_err(|e| e.to_string())?;
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes).map_err(|e| e.to_string())?;
+    Ok(base64_encode(&bytes))
+}
+
+fn base64_encode(input: &[u8]) -> String {
+    const CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity((input.len() + 2) / 3 * 4);
+    for chunk in input.chunks(3) {
+        let b0 = chunk[0] as usize;
+        let b1 = if chunk.len() > 1 { chunk[1] as usize } else { 0 };
+        let b2 = if chunk.len() > 2 { chunk[2] as usize } else { 0 };
+        out.push(CHARS[(b0 >> 2)] as char);
+        out.push(CHARS[((b0 & 3) << 4) | (b1 >> 4)] as char);
+        out.push(if chunk.len() > 1 { CHARS[((b1 & 15) << 2) | (b2 >> 6)] as char } else { '=' });
+        out.push(if chunk.len() > 2 { CHARS[b2 & 63] as char } else { '=' });
+    }
+    out
+}
+
+#[tauri::command]
 async fn update_theme_menu(app_handle: tauri::AppHandle, is_dark: bool) -> Result<(), tauri::Error> {
     println!("update_theme_menu called with is_dark: {}", is_dark);
 
@@ -750,6 +774,7 @@ pub fn run() {
             save_file_dialog,
             save_file,
             read_file,
+            read_binary_file,
             open_file_dialog,
             update_theme_menu,
             debug_args,

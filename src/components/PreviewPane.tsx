@@ -1,35 +1,97 @@
-import React, { useMemo, useRef, useEffect } from 'react'
+import React, { useState, useRef, useEffect } from 'react'
+import { invoke } from '@tauri-apps/api/core'
 import { markdownParser } from '../services/markdownParser'
 import './PreviewPane.css'
 
 interface PreviewPaneProps {
   content: string
+  currentFile?: string | null
   className?: string
   onScroll?: () => void
   onMount?: (element: HTMLDivElement) => void
 }
 
+function getImageMimeType(filePath: string): string {
+  const ext = filePath.split('.').pop()?.toLowerCase() ?? ''
+  const types: Record<string, string> = {
+    png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg',
+    gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml',
+    bmp: 'image/bmp', ico: 'image/x-icon',
+  }
+  return types[ext] ?? 'image/png'
+}
+
 export const PreviewPane: React.FC<PreviewPaneProps> = ({
   content,
+  currentFile = null,
   className = '',
   onScroll,
   onMount
 }) => {
   const containerRef = useRef<HTMLDivElement>(null)
   const hasCalledMount = useRef(false)
+  const [htmlContent, setHtmlContent] = useState('<div class="preview-placeholder">Start typing to see preview...</div>')
 
-  const htmlContent = useMemo(() => {
+  useEffect(() => {
     if (!content.trim()) {
-      return '<div class="preview-placeholder">Start typing to see preview...</div>'
+      setHtmlContent('<div class="preview-placeholder">Start typing to see preview...</div>')
+      return
     }
 
+    let parsed: string
     try {
-      return markdownParser.parse(content)
+      parsed = markdownParser.parse(content)
     } catch (error) {
       console.error('Error parsing markdown:', error)
-      return '<div class="preview-error">Error rendering preview</div>'
+      setHtmlContent('<div class="preview-error">Error rendering preview</div>')
+      return
     }
-  }, [content])
+
+    // Resolve relative image paths to base64 data URLs
+    const docDir = currentFile ? currentFile.substring(0, currentFile.lastIndexOf('/')) : null
+    if (!docDir) {
+      setHtmlContent(parsed)
+      return
+    }
+
+    const imgRegex = /<img([^>]*)\ssrc="([^"]+)"([^>]*)>/gi
+    const relativeSrcs: string[] = []
+    let match: RegExpExecArray | null
+    while ((match = imgRegex.exec(parsed)) !== null) {
+      const src = match[2]
+      if (!src.startsWith('http://') && !src.startsWith('https://') && !src.startsWith('data:') && !src.startsWith('/')) {
+        relativeSrcs.push(src)
+      }
+    }
+
+    if (relativeSrcs.length === 0) {
+      setHtmlContent(parsed)
+      return
+    }
+
+    // Load all relative images as base64 in parallel
+    Promise.all(
+      relativeSrcs.map(async (src) => {
+        const cleanSrc = src.startsWith('./') ? src.slice(2) : src
+        const absolutePath = `${docDir}/${cleanSrc}`
+        try {
+          const base64 = await invoke<string>('read_binary_file', { path: absolutePath })
+          return { src, dataUrl: `data:${getImageMimeType(src)};base64,${base64}` }
+        } catch (e) {
+          console.warn(`Could not load image: ${absolutePath}`, e)
+          return null
+        }
+      })
+    ).then((results) => {
+      let html = parsed
+      for (const result of results) {
+        if (result) {
+          html = html.split(`src="${result.src}"`).join(`src="${result.dataUrl}"`)
+        }
+      }
+      setHtmlContent(html)
+    })
+  }, [content, currentFile])
 
   // Call onMount once when container is ready
   useEffect(() => {
