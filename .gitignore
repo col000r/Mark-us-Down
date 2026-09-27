@@ -60,7 +60,6 @@ jspm_packages/
 
 # Tauri specific
 src-tauri/target/
-src-tauri/Cargo.lock
 
 # Temporary files
 *.tmp
