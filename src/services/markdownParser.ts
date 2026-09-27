@@ -265,6 +265,7 @@ export class MarkdownParser {
       // Allow necessary attributes (explicitly exclude style and event handlers)
       ALLOWED_ATTR: [
         'href', 'src', 'alt', 'title',
+        'width', 'height', // For sized images via raw <img> tags
         'class', 'id', // For syntax highlighting and styling
         'type', 'checked', 'disabled', // For task list checkboxes
         'data-source-line', // For scroll synchronization

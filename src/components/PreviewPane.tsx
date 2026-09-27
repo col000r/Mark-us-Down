@@ -72,7 +72,14 @@ export const PreviewPane: React.FC<PreviewPaneProps> = ({
     // Load all relative images as base64 in parallel
     Promise.all(
       relativeSrcs.map(async (src) => {
-        const cleanSrc = src.startsWith('./') ? src.slice(2) : src
+        // src is HTML-serialized (&amp;) and URL-encoded (%20) — decode both to get the real file path
+        let cleanSrc = src.replace(/&amp;/g, '&')
+        try {
+          cleanSrc = decodeURIComponent(cleanSrc)
+        } catch {
+          // Malformed escape sequence (e.g. a literal "%" in the filename) — use as-is
+        }
+        if (cleanSrc.startsWith('./')) cleanSrc = cleanSrc.slice(2)
         const absolutePath = `${docDir}/${cleanSrc}`
         try {
           const base64 = await invoke<string>('read_binary_file', { path: absolutePath })
