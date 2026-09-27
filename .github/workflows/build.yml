@@ -25,12 +25,12 @@ jobs:
         echo "Runner OS: ${{ runner.os }}"
         uname -a || echo "uname not available"
         
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v7
 
     - name: Setup node
-      uses: actions/setup-node@v4
+      uses: actions/setup-node@v7
       with:
-        node-version: 20
+        node-version: 22
 
     - name: Install Rust stable
       uses: dtolnay/rust-toolchain@stable
