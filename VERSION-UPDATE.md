@@ -1,6 +1,6 @@
 # How to Update the Version Number
 
-When releasing a new version of Mark-us-Down, you need to update the version number in **four** locations:
+When releasing a new version of Mark-us-Down, you need to update the version number in **five** locations:
 
 ## Files to Update
 
@@ -19,16 +19,25 @@ When releasing a new version of Mark-us-Down, you need to update the version num
    "version": "X.Y.Z",
    ```
 
-4. **`src/App.tsx`** (around line 791, in the About dialog)
+4. **`src/App.tsx`** (around line 839, in the About dialog)
    ```tsx
    <p className="version">Version X.Y.Z</p>
    ```
+
+5. **`src-tauri/Cargo.lock`** (the `mark-us-down` entry — search for `name = "mark-us-down"`)
+   ```toml
+   name = "mark-us-down"
+   version = "X.Y.Z"
+   ```
+   Cargo.lock is committed so CI builds use the same crate versions as local builds.
+   Any local `cargo` build updates this line automatically, but make sure the change gets committed.
 
 ## Quick Update Process
 
 1. **Search for the current version** across all files:
    ```bash
    grep -r "1.0.3" --include="*.json" --include="*.toml" --include="*.tsx"
+   grep -A1 'name = "mark-us-down"' src-tauri/Cargo.lock
    ```
 
 2. **Update each file** with the new version number
