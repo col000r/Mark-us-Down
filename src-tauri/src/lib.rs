@@ -155,6 +155,7 @@ fn set_tabbing_mode(window: &tauri::WebviewWindow, mode: isize) {
 /// Builds the Window menu. Giving it WINDOW_SUBMENU_ID makes Tauri register it as
 /// NSApp.windowsMenu, so AppKit adds its tab commands (Show Previous/Next Tab,
 /// Move Tab to New Window, Merge All Windows) and the open-window list.
+#[cfg(target_os = "macos")]
 fn build_window_menu<R: tauri::Runtime, M: Manager<R>>(manager: &M) -> tauri::Result<Submenu<R>> {
     SubmenuBuilder::with_id(manager, WINDOW_SUBMENU_ID, "Window")
         .item(&PredefinedMenuItem::minimize(manager, None)?)
@@ -293,9 +294,15 @@ async fn update_theme_menu(app_handle: tauri::AppHandle, is_dark: bool) -> Resul
         .item(&MenuItemBuilder::new("Quit Mark-us-Down").id("quit").accelerator("CmdOrCtrl+Q").build(&app_handle)?)
         .build()?;
 
-    let file_menu = SubmenuBuilder::new(&app_handle, "File")
-        .item(&MenuItemBuilder::new("New Window").id("new_window").accelerator("CmdOrCtrl+Shift+N").build(&app_handle)?)
-        .item(&MenuItemBuilder::new("New Tab").id("new_tab").accelerator("CmdOrCtrl+T").build(&app_handle)?)
+    let file_menu_builder = SubmenuBuilder::new(&app_handle, "File")
+        .item(&MenuItemBuilder::new("New Window").id("new_window").accelerator("CmdOrCtrl+Shift+N").build(&app_handle)?);
+
+    // Native window tabs are macOS-only; elsewhere each document is its own window
+    #[cfg(target_os = "macos")]
+    let file_menu_builder = file_menu_builder
+        .item(&MenuItemBuilder::new("New Tab").id("new_tab").accelerator("CmdOrCtrl+T").build(&app_handle)?);
+
+    let file_menu = file_menu_builder
         .item(&MenuItemBuilder::new("New").id("new").accelerator("CmdOrCtrl+N").build(&app_handle)?)
         .item(&MenuItemBuilder::new("Open...").id("open").accelerator("CmdOrCtrl+O").build(&app_handle)?)
         .separator()
@@ -333,15 +340,18 @@ async fn update_theme_menu(app_handle: tauri::AppHandle, is_dark: bool) -> Resul
 
     let view_menu = view_menu_builder.build()?;
 
-    let window_menu = build_window_menu(&app_handle)?;
-
-    let menu = MenuBuilder::new(&app_handle)
+    let menu_builder = MenuBuilder::new(&app_handle)
         .item(&app_menu)
         .item(&file_menu)
         .item(&edit_menu)
-        .item(&view_menu)
-        .item(&window_menu)
-        .build()?;
+        .item(&view_menu);
+
+    #[cfg(target_os = "macos")]
+    let window_menu = build_window_menu(&app_handle)?;
+    #[cfg(target_os = "macos")]
+    let menu_builder = menu_builder.item(&window_menu);
+
+    let menu = menu_builder.build()?;
 
     app_handle.set_menu(menu)?;
     println!("Menu rebuilt with theme text: {}", theme_text);
@@ -836,9 +846,15 @@ pub fn run() {
                 .item(&MenuItemBuilder::new("Quit Mark-us-Down").id("quit").accelerator("CmdOrCtrl+Q").build(app)?)
                 .build()?;
 
-            let file_menu = SubmenuBuilder::new(app, "File")
-                .item(&MenuItemBuilder::new("New Window").id("new_window").accelerator("CmdOrCtrl+Shift+N").build(app)?)
-                .item(&MenuItemBuilder::new("New Tab").id("new_tab").accelerator("CmdOrCtrl+T").build(app)?)
+            let file_menu_builder = SubmenuBuilder::new(app, "File")
+                .item(&MenuItemBuilder::new("New Window").id("new_window").accelerator("CmdOrCtrl+Shift+N").build(app)?);
+
+            // Native window tabs are macOS-only; elsewhere each document is its own window
+            #[cfg(target_os = "macos")]
+            let file_menu_builder = file_menu_builder
+                .item(&MenuItemBuilder::new("New Tab").id("new_tab").accelerator("CmdOrCtrl+T").build(app)?);
+
+            let file_menu = file_menu_builder
                 .item(&MenuItemBuilder::new("New").id("new").accelerator("CmdOrCtrl+N").build(app)?)
                 .item(&MenuItemBuilder::new("Open...").id("open").accelerator("CmdOrCtrl+O").build(app)?)
                 .separator()
@@ -876,15 +892,18 @@ pub fn run() {
 
             let view_menu = view_menu_builder.build()?;
 
-            let window_menu = build_window_menu(app)?;
-
-            let menu = MenuBuilder::new(app)
+            let menu_builder = MenuBuilder::new(app)
                 .item(&app_menu)
                 .item(&file_menu)
                 .item(&edit_menu)
-                .item(&view_menu)
-                .item(&window_menu)
-                .build()?;
+                .item(&view_menu);
+
+            #[cfg(target_os = "macos")]
+            let window_menu = build_window_menu(app)?;
+            #[cfg(target_os = "macos")]
+            let menu_builder = menu_builder.item(&window_menu);
+
+            let menu = menu_builder.build()?;
 
             app.set_menu(menu)?;
 
