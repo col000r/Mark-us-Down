@@ -1,8 +1,8 @@
-import { useEffect, useState, useRef, useCallback } from 'react'
+import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import * as monaco from 'monaco-editor'
 import './App.css'
 import './styles/highlight.css'
-import { SplitView, SourceEditor, PreviewPane } from './components'
+import { SplitView, SourceEditor, PreviewPane, StatusBar } from './components'
 import { scrollSyncService } from './services/scrollSync'
 
 function App() {
@@ -20,6 +20,7 @@ function App() {
   const [isWeb, setIsWeb] = useState(false) // Start as false (hide buttons), set true only if web
   const [debugInfo, setDebugInfo] = useState<string>('')
   const [isReadingMode, setIsReadingMode] = useState(false)
+  const [cursorPosition, setCursorPosition] = useState({ line: 1, column: 1 })
   const isTauri = !isWeb // Derived value for backward compatibility
   
   // Use a ref to track the current theme state to avoid stale closures
@@ -595,22 +596,28 @@ function App() {
     return null
   }
 
-  // Update window title when file changes (Tauri only)
+  // Update window title when file changes
   const updateWindowTitle = async (filePath: string | null, hasChanges: boolean) => {
-    const displayTitle = documentTitle || (filePath ? filePath.split('/').pop() : 'Untitled Document')
+    const displayTitle = documentTitle || filePath?.split('/').pop() || 'Untitled Document'
     const changeIndicator = hasChanges ? ' •' : ''
-    const fullTitle = `${displayTitle}${changeIndicator} - Mark-us-Down`
 
     if (!isTauri) {
       // In web mode, update document title
-      document.title = fullTitle
+      document.title = `${displayTitle}${changeIndicator} - Mark-us-Down`
       return
     }
+
+    // macOS shows the document name alone (tabs stay short) and marks unsaved
+    // changes natively via set_document_state; other platforms keep the suffixes
+    const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0
+    const fullTitle = isMac ? displayTitle : `${displayTitle}${changeIndicator} - Mark-us-Down`
 
     try {
       const { getCurrentWindow } = await import('@tauri-apps/api/window')
       const appWindow = getCurrentWindow()
       await appWindow.setTitle(fullTitle)
+      const { invoke } = await import('@tauri-apps/api/core')
+      await invoke('set_document_state', { edited: hasChanges, path: filePath })
     } catch (error) {
       console.error('Failed to update window title:', error)
     }
@@ -631,7 +638,15 @@ function App() {
   const handleEditorMount = useCallback((editor: monaco.editor.IStandaloneCodeEditor) => {
     scrollSyncService.setEditor(editor)
     editorRef.current = editor // Store reference for clipboard operations
+    editor.onDidChangeCursorPosition((e) => {
+      setCursorPosition({ line: e.position.lineNumber, column: e.position.column })
+    })
   }, [])
+
+  const wordCount = useMemo(() => {
+    const words = content.match(/[\p{L}\p{N}][\p{L}\p{N}'’_-]*/gu)
+    return words ? words.length : 0
+  }, [content])
 
   const handlePreviewMount = useCallback((element: HTMLDivElement) => {
     scrollSyncService.setPreviewElement(element)
@@ -785,32 +800,32 @@ function App() {
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
-      <header className="App-header">
-        <div className="file-info">
-          <div className="file-status">
-            <span className="file-name">
-              {documentTitle || 'Untitled Document'}
-              {hasUnsavedChanges && ' •'}
-            </span>
-            <span className="file-path">
-              {currentFile ? currentFile.split('/').pop() : 'No file loaded'}
-            </span>
+      {/* The desktop app shows the document name in the window title/tab instead;
+          the header stays in the web build, where it holds the file buttons */}
+      {isWeb && (
+        <header className="App-header">
+          <div className="file-info">
+            <div className="file-status">
+              <span className="file-name">
+                {documentTitle || 'Untitled Document'}
+                {hasUnsavedChanges && ' •'}
+              </span>
+              <span className="file-path">
+                {currentFile ? currentFile.split('/').pop() : 'No file loaded'}
+              </span>
+            </div>
           </div>
-        </div>
-        <div className="controls">
-          {isWeb && (
-            <>
-              <button onClick={handleNewFile}>New</button>
-              <button onClick={openFile}>Load</button>
-              <button onClick={handleSaveFile}>Save</button>
-              <button onClick={() => setShowAbout(true)}>About</button>
-              <button onClick={toggleTheme} className="theme-toggle">
-                {isDarkTheme ? '☀️' : '🌙'}
-              </button>
-            </>
-          )}
-        </div>
-      </header>
+          <div className="controls">
+            <button onClick={handleNewFile}>New</button>
+            <button onClick={openFile}>Load</button>
+            <button onClick={handleSaveFile}>Save</button>
+            <button onClick={() => setShowAbout(true)}>About</button>
+            <button onClick={toggleTheme} className="theme-toggle">
+              {isDarkTheme ? '☀️' : '🌙'}
+            </button>
+          </div>
+        </header>
+      )}
       <main className="editor-container">
         <SplitView
           leftComponent={
@@ -833,6 +848,15 @@ function App() {
           hideLeft={isReadingMode}
         />
       </main>
+      <StatusBar
+        filePath={currentFile}
+        hasUnsavedChanges={hasUnsavedChanges}
+        wordCount={wordCount}
+        cursorLine={cursorPosition.line}
+        cursorColumn={cursorPosition.column}
+        isReadingMode={isReadingMode}
+        onToggleReadingMode={() => setIsReadingMode(prev => !prev)}
+      />
 
       {/* About Dialog */}
       {showAbout && (

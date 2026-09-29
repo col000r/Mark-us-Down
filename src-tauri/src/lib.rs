@@ -171,10 +171,40 @@ async fn new_file(window: tauri::Window) -> Result<(), String> {
     Ok(())
 }
 
+/// Reflects the document state in the native window chrome on macOS: the
+/// "edited" dot in the close button and tab, and the title bar's file icon
+/// (Cmd-click for the path, drag to use the file). No-op on other platforms.
+#[tauri::command]
+async fn set_document_state(window: tauri::WebviewWindow, edited: bool, path: Option<String>) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        let target = window.clone();
+        window.run_on_main_thread(move || {
+            use objc2::{msg_send, runtime::AnyObject};
+            use objc2_foundation::NSString;
+
+            let Ok(ns_window) = target.ns_window() else { return };
+            if ns_window.is_null() {
+                return;
+            }
+            let ns_window = ns_window as *mut AnyObject;
+            // An empty filename removes the title bar icon
+            let filename = NSString::from_str(path.as_deref().unwrap_or(""));
+            unsafe {
+                let _: () = msg_send![ns_window, setDocumentEdited: edited];
+                let _: () = msg_send![ns_window, setRepresentedFilename: &*filename];
+            }
+        }).map_err(|e| e.to_string())?;
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = (window, edited, path);
+    Ok(())
+}
+
 #[tauri::command]
 async fn create_new_window(app_handle: tauri::AppHandle) -> Result<(), String> {
     // Create a new empty document window
-    create_document_window(&app_handle, None, None)?;
+    create_document_window_with_placement(&app_handle, None, None, Placement::Window)?;
     Ok(())
 }
 
@@ -892,6 +922,7 @@ pub fn run() {
             start_file_watcher,
             stop_file_watcher,
             set_window_empty,
+            set_document_state,
             window_ready
         ])
         .on_menu_event(handle_menu_event)

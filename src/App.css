@@ -131,6 +131,65 @@
   overflow: hidden;
 }
 
+/* Status bar */
+.status-bar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  height: 24px;
+  padding: 0 12px;
+  flex-shrink: 0;
+  background: var(--bg-primary);
+  border-top: 1px solid var(--border-primary);
+  color: var(--text-secondary);
+  font-size: 11px;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.status-path {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  /* Ellipsize from the left so the filename at the end stays visible */
+  direction: rtl;
+  text-align: left;
+}
+
+.status-spacer {
+  flex: 1;
+}
+
+.status-item {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.status-edited {
+  color: var(--text-primary);
+}
+
+.status-button {
+  padding: 1px 8px;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.status-button:hover {
+  border-color: var(--border-primary);
+}
+
+.status-button.active {
+  background: var(--bg-tertiary);
+  border-color: var(--border-primary);
+  color: var(--text-primary);
+}
+
 /* Modal styles */
 .modal-overlay {
   position: fixed;
@@ -324,6 +383,7 @@
   }
 
   .App-header,
+  .status-bar,
   .split-pane-left,
   .split-divider,
   .about-overlay,
