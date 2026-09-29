@@ -49,23 +49,64 @@ fn generate_window_label() -> String {
     format!("doc-{}", count)
 }
 
-/// Create a new document window, optionally with a file to open
+/// Where a new document should appear. On macOS, `Tab` joins the frontmost
+/// document window's tab group; `Window` always opens a separate window.
+/// Other platforms have no native tabs, so both open a window.
+#[derive(Clone, Copy, PartialEq)]
+enum Placement {
+    Tab,
+    Window,
+}
+
+/// Create a new document tab (macOS) or window, optionally with a file to open
 fn create_document_window(
     app_handle: &tauri::AppHandle,
     file_path: Option<String>,
     content: Option<String>,
 ) -> Result<tauri::WebviewWindow, String> {
+    create_document_window_with_placement(app_handle, file_path, content, Placement::Tab)
+}
+
+fn create_document_window_with_placement(
+    app_handle: &tauri::AppHandle,
+    file_path: Option<String>,
+    content: Option<String>,
+    #[cfg_attr(not(target_os = "macos"), allow(unused_variables))] placement: Placement,
+) -> Result<tauri::WebviewWindow, String> {
     let label = generate_window_label();
     println!("Creating new document window with label: {}", label);
 
-    let window = WebviewWindowBuilder::new(app_handle, &label, WebviewUrl::App("index.html".into()))
+    let builder = WebviewWindowBuilder::new(app_handle, &label, WebviewUrl::App("index.html".into()))
         .title("Mark-us-Down")
         .inner_size(1200.0, 800.0)
         .min_inner_size(600.0, 400.0)
         .resizable(true)
-        .center()
+        .center();
+
+    // On macOS, document windows share a tabbing identifier so they can be grouped
+    // into native window tabs. The window is created hidden so the tabbing mode can
+    // be set before it is first ordered front (which is when AppKit decides to tab it).
+    #[cfg(target_os = "macos")]
+    let builder = builder.tabbing_identifier(TABBING_IDENTIFIER).visible(false);
+
+    let window = builder
         .build()
         .map_err(|e| format!("Failed to create window: {}", e))?;
+
+    #[cfg(target_os = "macos")]
+    {
+        if placement == Placement::Window {
+            // Keep AppKit from tabbing it on first show, then allow tabbing again
+            // so later tabs and "Merge All Windows" still work with this window.
+            set_tabbing_mode(&window, NS_WINDOW_TABBING_MODE_DISALLOWED);
+            window.show().map_err(|e| format!("Failed to show window: {}", e))?;
+            set_tabbing_mode(&window, NS_WINDOW_TABBING_MODE_PREFERRED);
+        } else {
+            set_tabbing_mode(&window, NS_WINDOW_TABBING_MODE_PREFERRED);
+            window.show().map_err(|e| format!("Failed to show window: {}", e))?;
+        }
+        let _ = window.set_focus();
+    }
 
     // If no file is being opened, register this window as empty
     if file_path.is_none() {
@@ -86,6 +127,39 @@ fn create_document_window(
     }
 
     Ok(window)
+}
+
+#[cfg(target_os = "macos")]
+const TABBING_IDENTIFIER: &str = "rocks.brightlight.markusdown.document";
+
+#[cfg(target_os = "macos")]
+const NS_WINDOW_TABBING_MODE_PREFERRED: isize = 1;
+#[cfg(target_os = "macos")]
+const NS_WINDOW_TABBING_MODE_DISALLOWED: isize = 2;
+
+/// Sets the NSWindow tabbing mode. Preferred makes a window open as a tab of the
+/// frontmost document window, regardless of the "Prefer tabs" system setting.
+#[cfg(target_os = "macos")]
+fn set_tabbing_mode(window: &tauri::WebviewWindow, mode: isize) {
+    use objc2::{msg_send, runtime::AnyObject};
+
+    match window.ns_window() {
+        Ok(ns_window) if !ns_window.is_null() => unsafe {
+            let ns_window = ns_window as *mut AnyObject;
+            let _: () = msg_send![ns_window, setTabbingMode: mode];
+        },
+        _ => eprintln!("Could not get NSWindow for {}; native tabs unavailable", window.label()),
+    }
+}
+
+/// Builds the Window menu. Giving it WINDOW_SUBMENU_ID makes Tauri register it as
+/// NSApp.windowsMenu, so AppKit adds its tab commands (Show Previous/Next Tab,
+/// Move Tab to New Window, Merge All Windows) and the open-window list.
+fn build_window_menu<R: tauri::Runtime, M: Manager<R>>(manager: &M) -> tauri::Result<Submenu<R>> {
+    SubmenuBuilder::with_id(manager, WINDOW_SUBMENU_ID, "Window")
+        .item(&PredefinedMenuItem::minimize(manager, None)?)
+        .item(&PredefinedMenuItem::maximize(manager, Some("Zoom"))?)
+        .build()
 }
 
 // Tauri commands for file operations
@@ -191,6 +265,7 @@ async fn update_theme_menu(app_handle: tauri::AppHandle, is_dark: bool) -> Resul
 
     let file_menu = SubmenuBuilder::new(&app_handle, "File")
         .item(&MenuItemBuilder::new("New Window").id("new_window").accelerator("CmdOrCtrl+Shift+N").build(&app_handle)?)
+        .item(&MenuItemBuilder::new("New Tab").id("new_tab").accelerator("CmdOrCtrl+T").build(&app_handle)?)
         .item(&MenuItemBuilder::new("New").id("new").accelerator("CmdOrCtrl+N").build(&app_handle)?)
         .item(&MenuItemBuilder::new("Open...").id("open").accelerator("CmdOrCtrl+O").build(&app_handle)?)
         .separator()
@@ -214,7 +289,7 @@ async fn update_theme_menu(app_handle: tauri::AppHandle, is_dark: bool) -> Resul
         .build()?;
 
     let view_menu_builder = SubmenuBuilder::new(&app_handle, "View")
-        .item(&MenuItemBuilder::new(theme_text).id("theme_toggle").accelerator("CmdOrCtrl+T").build(&app_handle)?)
+        .item(&MenuItemBuilder::new(theme_text).id("theme_toggle").accelerator("CmdOrCtrl+Shift+L").build(&app_handle)?)
         .item(&MenuItemBuilder::new("Toggle Reading Mode").id("reading_mode").accelerator("CmdOrCtrl+E").build(&app_handle)?)
         .separator()
         .item(&MenuItemBuilder::new("Zoom In").id("zoom_in").accelerator("CmdOrCtrl+Plus").build(&app_handle)?)
@@ -228,11 +303,14 @@ async fn update_theme_menu(app_handle: tauri::AppHandle, is_dark: bool) -> Resul
 
     let view_menu = view_menu_builder.build()?;
 
+    let window_menu = build_window_menu(&app_handle)?;
+
     let menu = MenuBuilder::new(&app_handle)
         .item(&app_menu)
         .item(&file_menu)
         .item(&edit_menu)
         .item(&view_menu)
+        .item(&window_menu)
         .build()?;
 
     app_handle.set_menu(menu)?;
@@ -505,8 +583,24 @@ fn setup_dock_menu(app_handle: &tauri::AppHandle) {
         if let Some(app) = DOCK_APP_HANDLE.get() {
             let app = app.clone();
             let _ = app.clone().run_on_main_thread(move || {
-                if let Err(e) = create_document_window(&app, None, None) {
+                if let Err(e) = create_document_window_with_placement(&app, None, None, Placement::Window) {
                     eprintln!("Failed to create window from dock menu: {}", e);
+                }
+            });
+        }
+    }
+
+    // Called when the user clicks the "+" button in the native tab bar.
+    unsafe extern "C-unwind" fn new_window_for_tab(
+        _this: *mut AnyObject,
+        _sel: objc2::runtime::Sel,
+        _sender: *mut AnyObject,
+    ) {
+        if let Some(app) = DOCK_APP_HANDLE.get() {
+            let app = app.clone();
+            let _ = app.clone().run_on_main_thread(move || {
+                if let Err(e) = create_document_window(&app, None, None) {
+                    eprintln!("Failed to create tab from tab bar: {}", e);
                 }
             });
         }
@@ -588,6 +682,19 @@ fn setup_dock_menu(app_handle: &tauri::AppHandle) {
                 cls_ptr,
                 sel!(newWindowAction:),
                 new_window_imp,
+                b"v24@0:8@16\0".as_ptr() as *const c_char,
+            );
+
+            // Inject newWindowForTab: — its presence makes AppKit show the "+" button in
+            // the native tab bar; clicking it opens a new document tab.
+            let new_tab_imp: objc2::runtime::Imp = std::mem::transmute::<
+                unsafe extern "C-unwind" fn(*mut AnyObject, objc2::runtime::Sel, *mut AnyObject),
+                objc2::runtime::Imp,
+            >(new_window_for_tab);
+            objc_ffi::class_addMethod(
+                cls_ptr,
+                sel!(newWindowForTab:),
+                new_tab_imp,
                 b"v24@0:8@16\0".as_ptr() as *const c_char,
             );
 
@@ -701,6 +808,7 @@ pub fn run() {
 
             let file_menu = SubmenuBuilder::new(app, "File")
                 .item(&MenuItemBuilder::new("New Window").id("new_window").accelerator("CmdOrCtrl+Shift+N").build(app)?)
+                .item(&MenuItemBuilder::new("New Tab").id("new_tab").accelerator("CmdOrCtrl+T").build(app)?)
                 .item(&MenuItemBuilder::new("New").id("new").accelerator("CmdOrCtrl+N").build(app)?)
                 .item(&MenuItemBuilder::new("Open...").id("open").accelerator("CmdOrCtrl+O").build(app)?)
                 .separator()
@@ -724,7 +832,7 @@ pub fn run() {
                 .build()?;
 
             let view_menu_builder = SubmenuBuilder::new(app, "View")
-                .item(&MenuItemBuilder::new("Switch to Dark Mode").id("theme_toggle").accelerator("CmdOrCtrl+T").build(app)?)
+                .item(&MenuItemBuilder::new("Switch to Dark Mode").id("theme_toggle").accelerator("CmdOrCtrl+Shift+L").build(app)?)
                 .item(&MenuItemBuilder::new("Toggle Reading Mode").id("reading_mode").accelerator("CmdOrCtrl+E").build(app)?)
                 .separator()
                 .item(&MenuItemBuilder::new("Zoom In").id("zoom_in").accelerator("CmdOrCtrl+Plus").build(app)?)
@@ -738,11 +846,14 @@ pub fn run() {
 
             let view_menu = view_menu_builder.build()?;
 
+            let window_menu = build_window_menu(app)?;
+
             let menu = MenuBuilder::new(app)
                 .item(&app_menu)
                 .item(&file_menu)
                 .item(&edit_menu)
                 .item(&view_menu)
+                .item(&window_menu)
                 .build()?;
 
             app.set_menu(menu)?;
@@ -928,9 +1039,15 @@ fn handle_menu_event(app: &tauri::AppHandle, event: tauri::menu::MenuEvent) {
         "new_window" => {
             // Create a new empty window
             println!("Creating new window from menu");
-            match create_document_window(app, None, None) {
+            match create_document_window_with_placement(app, None, None, Placement::Window) {
                 Ok(_) => println!("Created new window from menu"),
                 Err(e) => eprintln!("Failed to create new window: {}", e),
+            }
+        }
+        "new_tab" => {
+            println!("Creating new tab from menu");
+            if let Err(e) = create_document_window(app, None, None) {
+                eprintln!("Failed to create new tab: {}", e);
             }
         }
         "new" => {

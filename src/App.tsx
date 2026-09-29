@@ -712,9 +712,11 @@ function App() {
               handleSaveFile()
             }
             break
-          case 't':
-            e.preventDefault()
-            toggleTheme()
+          case 'l':
+            if (e.shiftKey) {
+              e.preventDefault()
+              toggleTheme()
+            }
             break
           // Let Monaco handle clipboard operations via keyboard shortcuts
           // These handlers are only for menu items now
