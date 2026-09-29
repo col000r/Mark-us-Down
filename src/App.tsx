@@ -743,8 +743,12 @@ function App() {
     }
   }, [content, currentFile])
 
-  // Clean up on unmount
+  // Clean up on unmount. In dev, StrictMode runs this cleanup and then re-runs the
+  // effects, so re-register the editor here (PreviewPane re-registers itself).
   useEffect(() => {
+    if (editorRef.current) {
+      scrollSyncService.setEditor(editorRef.current)
+    }
     return () => {
       scrollSyncService.dispose()
     }

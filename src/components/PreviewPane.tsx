@@ -29,7 +29,6 @@ export const PreviewPane: React.FC<PreviewPaneProps> = ({
   onMount
 }) => {
   const containerRef = useRef<HTMLDivElement>(null)
-  const hasCalledMount = useRef(false)
   const [htmlContent, setHtmlContent] = useState('<div class="preview-placeholder">Start typing to see preview...</div>')
 
   useEffect(() => {
@@ -100,12 +99,11 @@ export const PreviewPane: React.FC<PreviewPaneProps> = ({
     })
   }, [content, currentFile])
 
-  // Call onMount once when container is ready
+  // Register the container on every mount (StrictMode remounts in dev after the
+  // parent's cleanup has disposed the scroll sync service)
   useEffect(() => {
-    if (containerRef.current && onMount && !hasCalledMount.current) {
-      console.log('[PreviewPane] Calling onMount')
+    if (containerRef.current && onMount) {
       onMount(containerRef.current)
-      hasCalledMount.current = true
     }
   }, [onMount])
 
